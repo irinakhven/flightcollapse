@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flightcollapse"
+version = "0.1.18"
+description = "Reference-anchored collapse of aligned long reads into transcript models, for FLIGHT-seq / oligo-dT single-cell Iso-Seq data"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Irina Khven"}]
+dependencies = [
+    "pysam>=0.21",
+    "numpy>=1.22",
+    "pandas>=1.5",
+]
+
+[project.optional-dependencies]
+plots = ["matplotlib>=3.5"]
+test = ["pytest>=7"]
+
+[project.scripts]
+flightcollapse = "flightcollapse.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
