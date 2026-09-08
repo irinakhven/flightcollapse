@@ -125,7 +125,9 @@ python -m pip install \
 
 Required inputs:
 
-- a coordinate-sorted aligned BAM and its `.bai` index;
+- a coordinate-sorted aligned BAM and its `.bai` index; the BAM should
+  preferably be PCR/UMI-deduplicated so that each retained alignment represents
+  a distinct input molecule;
 - the reference annotation GTF used for the analysis;
 - the matching genome FASTA and its `.fai` index.
 
@@ -137,6 +139,11 @@ Recommended or optional inputs:
 - a PolyASite / PolyA_DB BED of known cleavage sites;
 - one or more STAR `SJ.out.tab` files for independent short-read junction
   anchoring.
+
+A deduplicated BAM is preferred even though flightcollapse can use the optional
+barcode/UMI table for molecule-aware support. If a non-deduplicated BAM is used,
+provide that table whenever possible; otherwise duplicate alignments are counted
+as independent reads and can inflate read-based support thresholds.
 
 The repository files required for installation are `pyproject.toml` and
 `src/flightcollapse/`. `tests/` is needed only to validate the installation;
