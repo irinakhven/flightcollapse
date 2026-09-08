@@ -99,7 +99,7 @@ python -m pip install \
 
 Required inputs:
 
-- a coordinate-sorted aligned BAM and its `.bai` index;
+- a coordinate-sorted aligned [deduplicated] BAM and its `.bai` index;
 - the reference annotation GTF used for the analysis;
 - the matching genome FASTA and its `.fai` index.
 
