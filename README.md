@@ -70,13 +70,39 @@ so the default permits the `unknown` motif class. Full details are in the
 [scheme validation note](docs/SCHEME_VALIDATION.md), with a vector version of
 the figure [available here](docs/flightcollapse_logic_v0.1.18.svg).
 
+## Relationship to SQANTI3/Pigeon categories
+
+[Pigeon](https://isoseq.how/classification/categories.html) follows the [SQANTI3 structural-category convention](https://github.com/ConesaLab/SQANTI3/blob/master/docs/SQANTI3_isoform_classification.md). Those categories describe how a finished transcript model relates to a reference annotation. flightcollapse categories are assigned earlier, while reads are being consolidated into models, and additionally describe terminal-end evidence. The relationship is therefore a crosswalk rather than a one-to-one renaming.
+
+Most importantly, a Pigeon/SQANTI3 **FSM** (full-splice match) means that the internal splice chain matches an annotated transcript; its exact 5′ and 3′ ends may still differ. flightcollapse uses those differences to split an FSM-like chain into more informative categories:
+
+| Pigeon/SQANTI3 result | Likely flightcollapse category | Interpretation in flightcollapse |
+|---|---|---|
+| `full-splice_match` (FSM) | `FSM` | Splice chain and both ends match one annotated transcript within the configured tolerances. |
+| `full-splice_match` (FSM) | `end3_annotated` | The chain matches one transcript, but the 3′ end matches an annotated end of another isoform. |
+| `full-splice_match` (FSM) | `end3_novel` | The chain is annotated, but flightcollapse accepts a new poly(A)-supported 3′ end. |
+| `full-splice_match` (FSM) | `end3_unresolved` | The chain is annotated, but the observed 3′ end is displaced and does not satisfy the evidence required for a trusted novel end. |
+| `full-splice_match` (FSM) | `end5_alt` | The chain is annotated, but the 5′ end uses an alternative annotated transcription start site. |
+| `full-splice_match` (FSM) | `end5_extended` | The chain is annotated, but its supported 5′ end extends beyond the annotated starts. |
+| `full-splice_match` (FSM) | `end5_truncated` | Optional category for a shorter 5′ end; disabled by default in v0.1.18. |
+| `incomplete-splice_match` (ISM) | usually merged; sometimes `NIC`, `NNC`, or a mono-exon category | A 5′-truncated chain suffix is normally merged into its maximal annotated parent rather than reported as a separate ISM model. A protected model—for example one with independent start evidence—can survive under another category. flightcollapse intentionally has no general `ISM` output category. |
+| `novel_in_catalog` (NIC) | `NIC`, or sometimes `NNC` | flightcollapse calls `NIC` only when every complete donor–acceptor junction pair is annotated. A new pairing of individually known donor and acceptor sites is therefore `NNC` in flightcollapse, although SQANTI3/Pigeon can call it NIC. |
+| `novel_not_in_catalog` (NNC) | `NNC` | At least one complete splice junction is novel after flightcollapse junction curation. |
+| FSM, NIC, or NNC with intron retention | `IR` | A dedicated flightcollapse label for a reference-like chain with one or more introns read through. Its Pigeon/SQANTI3 structural category depends on the resulting exon/junction structure. |
+| FSM, genic, fusion, or another context-dependent class | `READTHROUGH` | The supported 3′ end continues beyond the annotated gene boundary. This is an end-behaviour label, so there is no single equivalent Pigeon/SQANTI3 structural category. |
+| FSM, genic, or genic-intron | `monoexon_3UTR` or `monoexon_internal` | Unspliced models inside a known locus. `monoexon_3UTR` lies in the terminal exon/3′ UTR; `monoexon_internal` is an internal gene-body model and requires poly(A) evidence. |
+| intergenic | `monoexon_intergenic` | A supported unspliced model outside annotated genes; v0.1.18 applies poly(A) and elevated read-support requirements. |
+| antisense or fusion | no direct equivalent | These are not dedicated flightcollapse v0.1.18 categories. Inspect the strand, locus association, `flags`, and `associated_transcript`; the model may instead be represented as `NIC`, `NNC`, or `READTHROUGH`, or may be filtered. |
+
+This table gives the expected conceptual mapping, not a deterministic conversion. The result also depends on the annotation release, strand and locus assignment, end/junction tolerances, and the Pigeon/SQANTI3 version. For a definitive comparison, run Pigeon on the GFF produced by flightcollapse and join the records by transcript ID. In `*.models.tsv`, the most useful flightcollapse columns are `category`, `parent_transcript`, `associated_transcript`, `dist_to_ref_tss`, `dist_to_ref_tts`, `end3_from`, `structural_diff`, and `flags`.
+
 ## Install
 
 Requirements: Python 3.9 or newer. The Python dependencies are `pysam`,
 `numpy`, and `pandas`.
 
 ```bash
-git clone https://github.com/<OWNER>/flightcollapse.git
+git clone https://github.com/irinakhven/flightcollapse.git
 cd flightcollapse
 python3 -m venv .venv
 source .venv/bin/activate
@@ -92,7 +118,7 @@ After the repository is published and tagged, it can also be installed directly:
 
 ```bash
 python -m pip install \
-  "flightcollapse @ git+https://github.com/<OWNER>/flightcollapse.git@v0.1.18"
+  "flightcollapse @ git+https://github.com/irinakhven/flightcollapse.git@v0.1.18"
 ```
 
 ## Files needed to run
@@ -180,4 +206,3 @@ Additional technical detail is retained in [Technical notes](docs/TECHNICAL_NOTE
 v0.1.18 is research software prepared for collaborator evaluation. Pin the
 `v0.1.18` tag when reproducing results. Licensed under the MIT License; see
 [LICENSE](LICENSE).
-
