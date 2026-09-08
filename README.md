@@ -76,7 +76,7 @@ Requirements: Python 3.9 or newer. The Python dependencies are `pysam`,
 `numpy`, and `pandas`.
 
 ```bash
-git clone https://github.com/<OWNER>/flightcollapse.git
+git clone https://github.com/irinakhven/flightcollapse.git
 cd flightcollapse
 python3 -m venv .venv
 source .venv/bin/activate
@@ -92,7 +92,7 @@ After the repository is published and tagged, it can also be installed directly:
 
 ```bash
 python -m pip install \
-  "flightcollapse @ git+https://github.com/<OWNER>/flightcollapse.git@v0.1.18"
+  "flightcollapse @ git+https://github.com/irinakhven/flightcollapse.git@v0.1.18"
 ```
 
 ## Files needed to run
