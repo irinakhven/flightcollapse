@@ -151,6 +151,10 @@ _SUFFIX = {
     "READTHROUGH": "readthrough",
     "monoexon_3UTR": "3UTRfrag",
     "monoexon_internal": "APA",
+    # 0.5.0. An inferred model is named after the transcript it stands in for,
+    # with a suffix that cannot be mistaken for an observation -- the whole
+    # point of the class is that nothing was seen with this structure.
+    "INFERRED": "inferred",
 }
 
 
@@ -206,6 +210,9 @@ def _attrs(m: TranscriptModel) -> str:
         parts.append(f'is_utr_only "{int(m.is_utr_only)}";')
     if m.posterior_real == m.posterior_real:
         parts.append(f'posterior_real "{m.posterior_real:.4f}";')
+    src = m.evidence.get("tss_evidence_source", "")
+    if src and src != "none":
+        parts.append(f'tss_evidence_source "{src}";')
     if m.flags:
         parts.append(f'flags "{",".join(m.flags)}";')
     return " ".join(parts)
@@ -233,6 +240,46 @@ def write_models_table(models: Sequence[TranscriptModel], path: str) -> None:
         # than guessed, so they must survive into the table.
         "tts_shift_from_reads", "n_mol_equivalents",
         "tail_molecule_frac", "n_tail_reads", "median_tail_len",
+        # 0.2.0: external 5' evidence, and how much of the model's own read
+        # mass carries its full intron chain. tss_evidence_source says which
+        # tier fired; the cage_* columns are the raw lookup behind it, so a
+        # threshold can be chosen from the distribution rather than guessed.
+        "tss_evidence_source", "in_cage_peak", "dist_to_cage_peak",
+        "dist_to_cage_reptss", "cage_peak_id",
+        "exact_chain_reads", "exact_chain_frac", "n_distinct_chains",
+        # 0.4.2: the SQANTI3 view. Recorded BESIDE `category`, never instead of
+        # it, so the two labellings are comparable on the same models.
+        "structural_category", "subcategory", "sqanti_primary_ref",
+        "terminal_class", "miss5_introns", "miss3_introns",
+        "n_novel_splice_sites", "n_novel_combination_junctions",
+        "structural_gene_ids", "structural_gene_count",
+        # 0.3.0: terminal evidence. `three_prime_dispersion` was already here
+        # and unused by any decision; these are the fields that now act on it.
+        "terminal_tier", "candidate_share",
+        "terminal_lfdr", "terminal_score", "chain_share",
+        "ratio_to_dominant_peak", "n_3p_peaks",
+        "end_is_annotated", "end_at_polya_site", "dist_ann_tts", "dist_polya_site",
+        "n_3p_truncated_reads", "n_3p_fragment_reads",
+        # short-read coverage, blank when no track was supplied -- absent and
+        # zero are different statements and stay apart
+        "sr_cov_upstream", "sr_cov_downstream", "sr_3p_step_ratio",
+        "sr_3p_step_supported", "sr_tss_ratio", "sr_tss_supported",
+        "sr_cov_continuity",
+        # 0.5.0: the second pass. `monoexon_gene_class` is the A-E verdict;
+        # `end3_second_pass_tier` is which evidence tier kept a novel 3' end,
+        # written on every judged model so the decision is reproducible from
+        # this table alone. The templated-tail columns are the measurement
+        # behind the `nontemplated` tier: genomic_a_run_3p is what the genome
+        # already accounts for, median_tail_excess is what the molecules added
+        # on top of it, and a genuine cleavage site is the case where the second
+        # is much larger than the first.
+        "monoexon_gene_class", "inferred", "inferred_source",
+        "inferred_transcript", "inferred_from_monoexon",
+        "end3_second_pass_tier",
+        "genomic_a_run_3p", "max_a_run_downstream", "median_tail_excess",
+        "n_nontemplated_reads", "frac_reads_nontemplated",
+        "dse_gu_frac", "dse_a_frac", "dse_gu_minus_a", "upstream_u_frac",
+        "n_3p_absorbed_reads",
         "flags",
     ]
     with open(path, "w") as fh:
@@ -263,6 +310,40 @@ def write_models_table(models: Sequence[TranscriptModel], path: str) -> None:
                 _fmt(ev.get("n_mol_equivalents")),
                 _fmt(ev.get("tail_molecule_frac")),
                 ev.get("n_tail_reads", ""), _fmt(ev.get("median_tail_len")),
+                ev.get("tss_evidence_source", ""), ev.get("in_cage_peak", ""),
+                ev.get("dist_to_cage_peak", ""), ev.get("dist_to_cage_reptss", ""),
+                ev.get("cage_peak_id", ""),
+                ev.get("exact_chain_reads", ""), ev.get("exact_chain_frac", ""),
+                ev.get("n_distinct_chains", ""),
+                ev.get("structural_category", ""), ev.get("subcategory", ""),
+                ev.get("sqanti_primary_ref", ""), ev.get("terminal_class", ""),
+                ev.get("miss5_introns", ""), ev.get("miss3_introns", ""),
+                ev.get("n_novel_splice_sites", ""),
+                ev.get("n_novel_combination_junctions", ""),
+                ev.get("structural_gene_ids", ""),
+                ev.get("structural_gene_count", ""),
+                ev.get("terminal_tier", ""), ev.get("candidate_share", ""),
+                ev.get("terminal_lfdr", ""), ev.get("terminal_score", ""),
+                ev.get("chain_share", ""), ev.get("ratio_to_dominant_peak", ""),
+                ev.get("n_3p_peaks", ""),
+                ev.get("end_is_annotated", ""), ev.get("end_at_polya_site", ""),
+                ev.get("dist_ann_tts", ""), ev.get("dist_polya_site", ""),
+                ev.get("n_3p_truncated_reads", ""), ev.get("n_3p_fragment_reads", ""),
+                ev.get("sr_cov_upstream", ""), ev.get("sr_cov_downstream", ""),
+                ev.get("sr_3p_step_ratio", ""), ev.get("sr_3p_step_supported", ""),
+                ev.get("sr_tss_ratio", ""), ev.get("sr_tss_supported", ""),
+                ev.get("sr_cov_continuity", ""),
+                ev.get("monoexon_gene_class", ""), ev.get("inferred", ""),
+                ev.get("inferred_source", ""), ev.get("inferred_transcript", ""),
+                ev.get("inferred_from_monoexon", ""),
+                ev.get("end3_second_pass_tier", ""),
+                ev.get("genomic_a_run_3p", ""), ev.get("max_a_run_downstream", ""),
+                ev.get("median_tail_excess", ""),
+                ev.get("n_nontemplated_reads", ""),
+                ev.get("frac_reads_nontemplated", ""),
+                ev.get("dse_gu_frac", ""), ev.get("dse_a_frac", ""),
+                ev.get("dse_gu_minus_a", ""), ev.get("upstream_u_frac", ""),
+                ev.get("n_3p_absorbed_reads", ""),
                 ",".join(m.flags),
             ]
             fh.write("\t".join("" if v is None else str(v) for v in row) + "\n")

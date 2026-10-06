@@ -75,10 +75,13 @@ class ChainGroup:
     n_parents: int = 0
     eff_n_parents: float = 0.0
     ratio_to_top_parent: float = float("nan")
-    #: model 5' end (high percentile of member reads) sits at an annotated TSS
-    #: of the same gene -- evidence for a real alternative start rather than
-    #: 5' degradation
+    #: model 5' end (high percentile of member reads) has independent support
+    #: for being a real start site rather than 5' degradation
     tss_evidence: bool = False
+    #: which tier supplied it: annotation | cage_reptss | cage_peak | none.
+    #: Recorded even when ``tss_evidence`` is False (rescue disabled), so the
+    #: effect of enabling the atlas is measurable without re-running.
+    tss_evidence_source: str = "none"
 
     @property
     def annotated(self) -> bool:
@@ -310,6 +313,9 @@ def resolve_suffixes(
             if params.require_tss_evidence_to_keep_unannotated_suffix and g.tss_evidence:
                 g.merge_class = "alt_tss_kept"
                 stats["n_dominant_protected"] += 1
+                stats[f"n_alt_tss_kept_{g.tss_evidence_source}"] = (
+                    stats.get(f"n_alt_tss_kept_{g.tss_evidence_source}", 0) + 1
+                )
                 continue
             ann_sup = np.array([max(groups[p].support, 1) for p in ann_parents], float)
             best_ann = ann_parents[int(np.argmax(ann_sup))]

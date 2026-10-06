@@ -1,0 +1,608 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>flightcollapse 0.5.1 logic</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fbfbfa;color:#0a0a0a;
+  font-family:-apple-system,'Segoe UI',Inter,'Helvetica Neue',Arial,sans-serif;
+  font-size:11px;line-height:1.42;width:1860px;padding:34px 30px 26px}
+h1{font-size:30px;letter-spacing:-.6px;font-weight:700;display:inline}
+.ver{font-size:15px;color:#74736e;font-weight:600;margin-left:10px}
+.sub{font-size:12.5px;color:#52504e;margin-top:5px}
+.legend{display:flex;flex-wrap:wrap;gap:16px;align-items:center;
+  margin:14px 0 8px;padding:9px 0;border-top:1px solid #dedbd5;
+  border-bottom:1px solid #dedbd5;font-size:10.5px;color:#52504e}
+.sw{display:inline-block;width:11px;height:11px;border-radius:2px;
+  margin-right:5px;vertical-align:-1px}
+.pill{border:1px solid #a25900;color:#a25900;border-radius:10px;
+  padding:2px 9px;font-size:10px;font-weight:600;background:#fdf6ec}
+.note{font-size:10.5px;color:#74736e;margin-top:6px}
+.note.a{color:#a25900}
+
+.band{margin-top:20px}
+.bandhead{display:flex;align-items:baseline;gap:12px;
+  padding:7px 11px;border-radius:5px;margin-bottom:11px}
+.bandhead .t{font-size:14px;font-weight:700;letter-spacing:.2px}
+.bandhead .d{font-size:11px;color:#52504e}
+.b1{background:#f4f6fb;border-left:4px solid #2978d5}
+.b2{background:#fdf6ec;border-left:4px solid #a25900}
+.b3{background:#f1faf5;border-left:4px solid #0e8f62}
+
+.cols{display:flex;gap:13px;align-items:flex-start}
+.col{flex:1;display:flex;flex-direction:column;gap:9px;min-width:0}
+.col.w15{flex:1.5} .col.w12{flex:1.2} .col.w08{flex:.8}
+
+.p{background:#ffffff;border:1px solid #dedbd5;border-radius:5px;
+  padding:9px 10px}
+.p.l{border-left:3px solid #2978d5}
+.p.lr{border-left:3px solid #c2521f}
+.p.lg{border-left:3px solid #0e8f62}
+.p.lp{border-left:3px solid #4a3aa6}
+.p.lx{border-left:3px solid #c7342e}
+.p.la{border-left:3px solid #a25900;background:#fdf6ec}
+.p.plain{background:#faf9f5}
+.ph{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+.num{width:17px;height:17px;border-radius:50%;background:#0a0a0a;color:#fff;
+  font-size:10px;font-weight:700;display:flex;align-items:center;
+  justify-content:center;flex:none}
+.num.a{background:#a25900}
+.ttl{font-size:13px;font-weight:700}
+.h{font-size:11px;font-weight:700;margin-bottom:4px}
+.h.a{color:#a25900}
+.t{font-size:10.5px;color:#52504e}
+.s{font-size:9.5px;color:#74736e;margin-top:4px}
+.mono{font-family:'SF Mono',Menlo,Consolas,monospace;font-size:9.5px}
+.tag{font-family:'SF Mono',Menlo,Consolas,monospace;font-size:9.5px;
+  color:#2978d5;margin-top:5px}
+.tag.g{color:#0e8f62} .tag.p{color:#4a3aa6}
+.tag.r{color:#c7342e} .tag.o{color:#c2521f} .tag.a{color:#a25900}
+ul{margin:3px 0 0 13px} li{font-size:10.5px;color:#52504e;margin-bottom:3px}
+li b{color:#0a0a0a}
+.kv{display:flex;justify-content:space-between;gap:8px;font-size:10px;
+  padding:2px 0;border-bottom:1px dotted #dedbd5}
+.kv:last-child{border-bottom:0}
+.kv span:last-child{font-family:'SF Mono',Menlo,monospace;color:#0a0a0a;
+  white-space:nowrap}
+.kv.hi span:last-child{color:#a25900;font-weight:600}
+
+/* exon-structure mini diagrams */
+.dia{background:#faf9f5;border:1px solid #dedbd5;border-radius:4px;
+  padding:7px 8px;margin:5px 0}
+.trk{display:flex;align-items:center;gap:0;height:13px;margin:3px 0}
+.lbl{width:46px;font-size:8.5px;color:#74736e;flex:none}
+.ex{height:11px;border-radius:1.5px;flex:none}
+.ex.g{background:#b9b6b0}
+.iv{flex:1;height:1px;background:#b9b6b0;position:relative;min-width:12px}
+.iv::after{content:'›';position:absolute;left:50%;top:-8px;transform:translateX(-50%);
+  color:#b9b6b0;font-size:11px}
+.iv.b{background:#2978d5} .iv.b::after{color:#2978d5}
+.iv.p{background:#4a3aa6} .iv.p::after{color:#4a3aa6}
+.iv.o{background:#c2521f} .iv.o::after{color:#c2521f}
+.iv.x{background:#c7342e} .iv.x::after{color:#c7342e}
+.dash{border-top:1px dashed #b9b6b0;height:0;flex:none}
+.cap{font-size:8.5px;color:#74736e;margin-top:3px}
+.cap.a{color:#a25900}
+.foot{margin-top:20px;padding-top:9px;border-top:1px solid #dedbd5;
+  font-size:10px;color:#52504e;display:flex;gap:10px;align-items:baseline}
+.foot b{color:#0a0a0a}
+.right{margin-left:auto;color:#74736e}
+</style></head><body>
+
+<div><h1>flightcollapse</h1><span class="ver">v0.5.1</span></div>
+<div class="sub">How a transcript model is built from aligned long reads — reference-anchored
+collapse for oligo-dT single-cell Iso-Seq</div>
+
+<div class="legend">
+  <span><span class="sw" style="background:#2978d5"></span>reference-anchored — keeps a GENCODE identity</span>
+  <span><span class="sw" style="background:#c2521f"></span>merged into its parent</span>
+  <span><span class="sw" style="background:#0e8f62"></span>mono-exon track</span>
+  <span><span class="sw" style="background:#4a3aa6"></span>novel model</span>
+  <span><span class="sw" style="background:#c7342e"></span>rejected</span>
+  <span><span class="sw" style="background:#a25900"></span>new in 0.5.x</span>
+  <span class="pill">panels 0, 8, 9 are new</span>
+</div>
+<div class="note">In every icon the grey track is GENCODE; the coloured track is what
+flightcollapse emits. Faint dashed boxes are reference exons the model does not contain.
+Support is counted in MOLECULES — UMI-collapsed per cell, not in reads.</div>
+<div class="note a">0.5.x changes NOTHING in panels 1–6. It adds a second pass over the
+finished catalogue (panels 8–9) and splits the run across contigs (panel 0). Numbers on
+this sheet are measured on the nine 0.5.1 runs: BD144_kin/HM/ND and BD166b/BD174a/BD176c/BD178b/BD67/BD70.</div>
+
+<div class="band">
+  <div class="bandhead b1">
+    <span class="t">FIRST PASS</span>
+    <span class="d">builds the catalogue · unchanged since 0.4.6 · reproduce it exactly with <span class="mono">--no-second-pass</span></span>
+  </div>
+  <div class="cols">
+    <div class="col">
+<div class="p l">
+  <div class="ph"><div class="num">1</div><div class="ttl">Read admission</div></div>
+  <div class="t">One definition of an admitted read, shared by the scanning pass and the
+  output pass, so the two can never disagree.</div>
+  <div class="dia"><div class="trk"><div class="lbl">admitted</div><div class="ex" style="width:40px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:52px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:44px;background:#2978d5"></div></div><div class="trk"><div class="lbl">rejected</div><div class="ex" style="width:34px;background:#c7342e"></div><div class="iv x"></div><div class="ex" style="width:30px;background:#c7342e"></div><div style="width:6px;flex:none"></div><div class="ex" style="width:46px;background:#c7342e"></div></div><div class="cap ">coverage ≥ 0.90 · identity ≥ 0.95 · 5' soft clip ≤ 200 nt</div></div>
+  <div class="s">On an untrimmed BAM the poly(A) is soft-clipped, so a 0.99 coverage gate
+  keeps one read in six and enriches for mono-exonic ones. The pipeline therefore
+  trims, deduplicates, then re-materialises the founders <b>untrimmed</b> — the tail
+  has to be there for panel 9.</div>
+</div>
+
+<div class="p l">
+  <div class="ph"><div class="num">2</div><div class="ttl">Junction census</div></div>
+  <div class="t">Every junction in every admitted read is counted once, with its motif,
+  flanking repeat, share of the traffic at each of its own splice sites, and distance to
+  the nearest annotated site.</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:36px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:46px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:40px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">read</div><div class="ex" style="width:34px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:44px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:42px;background:#2978d5"></div></div><div class="trk"><div class="lbl">snapped</div><div class="ex" style="width:36px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:46px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:40px;background:#2978d5"></div></div><div class="cap ">annotation-first: a read site within 5 bp moves onto the annotated site</div></div>
+</div>
+
+<div class="p l">
+  <div class="h">internal deletions are promoted first</div>
+  <div class="t">A short intron spelled as a CIGAR D rather than an N leaves the intron
+  chain untouched, so a real splicing event can hide inside an FSM. Gaps of 20–5,000 bp
+  seen in ≥ 3 reads are promoted to junctions before the census, then curated like
+  any other.</div>
+</div>
+
+<div class="p plain">
+  <div class="h">does the read have any intron?</div>
+  <div class="t"><b>YES</b> → spliced track, panels 3–5 &nbsp;·&nbsp;
+  <b>NO</b> → mono-exon track, panel 6</div>
+  <div class="s">The empty chain is not a suffix of anything. That single rule is the
+  mono-exon fix; unspliced reads skip panels 3–5 entirely.</div>
+</div>
+</div>
+    <div class="col">
+<div class="p l">
+  <div class="ph"><div class="num">3</div><div class="ttl">Junction curation</div></div>
+  <div class="t">Junctions are curated BEFORE chains are built. A chain with 40 reads
+  containing one spurious junction survives a chain threshold; it does not survive a
+  junction threshold.</div>
+  <div class="s">An ANNOTATED junction is never rejected — dropping one because it is
+  rare in a single sample would fabricate novel chains out of well-known transcripts.</div>
+</div>
+
+<div class="p l">
+  <div class="h">a junction that is still novel must clear</div>
+  <ul>
+    <li><b>molecules ≥ 3 and reads ≥ 5</b><br>
+      <span class="s">not read count alone — reads are PCR copies</span></li>
+    <li><b>≥ 0.1% of the reads at its own donor AND its own acceptor</b></li>
+    <li><b>GT-AG always; GC-AG and AT-AC only with short-read confirmation in
+      ≥ 2 replicates, or ≥ 50 reads</b></li>
+    <li><b>no direct repeat ≥ 8 bp flanking the intron</b><br>
+      <span class="s">RT template switching</span></li>
+    <li><b>local FDR ≤ 0.05 from the calibrated model</b></li>
+  </ul>
+</div>
+
+<div class="p lp">
+  <div class="h">the calibrated model</div>
+  <div class="t">Ridge logistic → two-component mixture → local FDR, with Storey
+  π₀ and a monotone fit, stratified by whether the junction reuses an annotated
+  splice site. <b>Annotated junctions are the positive anchor; junctions on rejected reads
+  are the negative one.</b></div>
+  <div class="s">Fitted PER CONTIG — which is exactly what makes panel 0's parallelism
+  safe: no calibration crosses a contig boundary, so splitting the run changes no
+  threshold and no decision.</div>
+  <div class="tag">lfdr, posterior_real in junctions.tsv</div>
+</div>
+
+<div class="p lx">
+  <div class="h">a read carrying a rejected junction is set aside</div>
+  <div class="dia"><div class="trk"><div class="lbl">read</div><div class="ex" style="width:40px;background:#c7342e"></div><div class="iv x"></div><div class="ex" style="width:30px;background:#c7342e"></div><div class="iv x"></div><div class="ex" style="width:48px;background:#c7342e"></div></div><div class="cap ">rejected junction</div></div>
+  <div class="t">It never becomes a model — and it becomes the negative anchor the
+  chain-level model trains on. An empty decoy set makes the chain calibration fall back
+  to flat thresholds silently, so the run counts decoy groups and fails below a floor.</div>
+  <div class="tag r">decoy_chain_groups in qc.json</div>
+</div>
+
+<div class="p lg">
+  <div class="h">short reads are an anchor, never a filter</div>
+  <div class="t">Short reads may SAVE a junction and can never condemn one. At 24%
+  unique mapping, "the short reads did not see it" is not evidence of absence —
+  227 of 525 known-real junctions were invisible in all three replicates.</div>
+  <div class="s">rescue is opt-in: junctions.short_read_rescue</div>
+</div>
+</div>
+    <div class="col w12">
+<div class="p l">
+  <div class="ph"><div class="num">4</div><div class="ttl">Chain identity</div></div>
+  <div class="t">Reads are grouped on the exact curated intron chain, stored in
+  transcript orientation so that a 5'-truncated read is always a SUFFIX of its parent.
+  The representative is ALWAYS the maximal chain: merges only ever run from a shorter
+  chain into a longer one.</div>
+</div>
+
+<div class="p l">
+  <div class="h">chain matches an annotated chain</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:38px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:34px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:44px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:38px;background:#2978d5"></div></div></div>
+  <div class="t">FSM — the model takes that transcript's GENCODE identity.</div>
+  <div class="tag">ENST00000229239.10</div>
+</div>
+
+<div class="p lr">
+  <div class="h">unannotated chain that is a SUFFIX of an annotated one</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:38px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">reads</div><div class="dash" style="width:34px"></div><div class="iv o"></div><div class="ex" style="width:44px;background:#c2521f"></div><div class="iv o"></div><div class="ex" style="width:38px;background:#c2521f"></div></div></div>
+  <div class="t">5' truncation — merged into the parent whatever the support ratio says.
+  The truncated form routinely outnumbers the intact one.</div>
+</div>
+
+<div class="p l">
+  <div class="h">…unless its 5' end sits at an annotated TSS</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:38px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div style="width:34px;flex:none"></div><div class="iv b"></div><div class="ex" style="width:44px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:38px;background:#2978d5"></div></div><div class="cap ">annotated TSS</div></div>
+  <div class="t">A real alternative start — kept as its own model.</div>
+  <div class="tag">ENST…|alt5end1</div>
+</div>
+
+<div class="p lp">
+  <div class="h">independent chain, every junction annotated</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:40px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:40px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:34px;background:#4a3aa6"></div><div class="iv p"></div><div class="ex" style="width:28px;background:#4a3aa6"></div><div class="iv p"></div><div class="ex" style="width:46px;background:#4a3aa6"></div></div></div>
+  <div class="t">NIC — a novel combination of known splice sites.</div>
+  <div class="tag p">GAPDH|NIC_1</div>
+</div>
+
+<div class="p lp">
+  <div class="h">independent chain carrying a novel junction</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:38px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:34px;background:#4a3aa6"></div><div class="iv p"></div><div class="ex" style="width:30px;background:#4a3aa6"></div><div class="iv p"></div><div class="ex" style="width:44px;background:#4a3aa6"></div></div><div class="cap ">novel junction</div></div>
+  <div class="t">NNC — reaches this point only if that junction survived panel 3.</div>
+  <div class="tag p">GAPDH|NNC_1</div>
+</div>
+
+<div class="p lp">
+  <div class="h">an intron is retained, with exonic flank on BOTH sides</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:38px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:34px;background:#4a3aa6"></div><div class="ex" style="width:60px;background:#4a3aa6"></div><div class="iv p"></div><div class="ex" style="width:38px;background:#4a3aa6"></div></div></div>
+  <div class="t">IR. Flank on both sides is what separates a retained intron from a
+  plain 3' truncation that happens to stop inside one.</div>
+  <div class="tag p">ENST…|IR1</div>
+</div>
+
+<div class="p lp">
+  <div class="h">the chain spans two annotated genes</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:30px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:24px;background:#b9b6b0"></div><div style="width:10px;flex:none"></div><div class="ex" style="width:26px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:30px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:30px;background:#4a3aa6"></div><div class="iv p"></div><div class="ex" style="width:24px;background:#4a3aa6"></div><div style="width:10px;flex:none"></div><div class="ex" style="width:26px;background:#4a3aa6"></div><div class="iv p"></div><div class="ex" style="width:30px;background:#4a3aa6"></div></div><div class="cap ">gene A &nbsp;&nbsp;|&nbsp;&nbsp; gene B</div></div>
+  <div class="t">READTHROUGH — its own category, not a novel isoform of either gene.</div>
+  <div class="tag p">GENEA|readthrough1</div>
+</div>
+
+<div class="p lx">
+  <div class="h">neither side annotated and support is comparable</div>
+  <div class="t">Genuinely ambiguous — kept separate and flagged, never guessed.</div>
+  <div class="tag r">flagged in group_chains.tsv</div>
+</div>
+</div>
+    <div class="col w12">
+<div class="p l">
+  <div class="ph"><div class="num">5</div><div class="ttl">Terminal ends</div></div>
+  <div class="t">3' is the anchored end under oligo-dT, so it is peak-clustered on
+  MOLECULE mass. 5' is the degraded end: a model's 5' end is the 90th percentile of its
+  members, never the minimum. Ends are compared against EVERY transcript sharing the
+  chain, not against one designated parent.</div>
+</div>
+
+<div class="p l">
+  <div class="h">peak matches the parent transcript's annotated 3' end</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:38px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:34px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:44px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:38px;background:#2978d5"></div></div></div>
+  <div class="t">FSM.</div><div class="tag">ENST00000229239.10</div>
+</div>
+
+<div class="p lr">
+  <div class="h">peak matches ANOTHER transcript of the same gene</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:60px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:34px;background:#c2521f"></div><div class="iv o"></div><div class="ex" style="width:44px;background:#c2521f"></div><div class="iv o"></div><div class="ex" style="width:30px;background:#c2521f"></div></div><div class="cap ">3' end of tx B</div></div>
+  <div class="t">An annotated alternative end, not a discovery. Checking only the parent
+  undercounts these: 35% of 3' ends match it, 72% match some transcript of the gene.</div>
+  <div class="tag o">ENST…|alt3end1</div>
+</div>
+
+<div class="p lp">
+  <div class="h">novel peak, ≥ 5% of the group, polyA tail on its molecules</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:56px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:34px;background:#4a3aa6"></div><div class="iv p"></div><div class="ex" style="width:44px;background:#4a3aa6"></div><div class="iv p"></div><div class="ex" style="width:34px;background:#4a3aa6"></div></div><div class="cap ">AAAA…tail</div></div>
+  <div class="t">A candidate alternative polyA site. <b>In 0.5.x this is no longer the
+  last word</b> — every model that lands here is re-examined in panel 9.</div>
+  <div class="tag p">ENST…|novel3end1</div>
+</div>
+
+<div class="p l">
+  <div class="h">peak rejected, but an annotated end is within 300 bp</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:42px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:34px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:44px;background:#2978d5"></div><div class="iv b"></div><div class="ex" style="width:38px;background:#2978d5"></div></div><div class="cap ">≤ 300 bp</div></div>
+  <div class="t">Snapped. Annotation REFINING an observed coordinate, never manufacturing
+  a distant one: the median model moves 5 bp and none moves more than 300.</div>
+  <div class="tag">FSM</div>
+</div>
+
+<div class="p lx">
+  <div class="h">A-rich genomic window downstream, no tail on the reads</div>
+  <div class="dia"><div class="trk"><div class="lbl">model</div><div class="ex" style="width:40px;background:#c7342e"></div><div class="iv x"></div><div class="ex" style="width:50px;background:#c7342e"></div><div class="ex" style="width:34px;background:#c7342e"></div></div><div class="cap ">A-rich, no tail</div></div>
+  <div class="t">Discarded as internal priming. The oligo-dT primed on genomic A's, which
+  ALIGN rather than clip — so an internally primed molecule shows a read pile and no
+  tail.</div>
+</div>
+
+<div class="p lp">
+  <div class="h">5' end upstream of the annotated TSS</div>
+  <div class="t">A credible alternative start — unless it crosses an annotated junction,
+  which makes it a retained first intron instead.</div>
+  <div class="tag p">ENST…|ext5end1</div>
+</div>
+
+<div class="p plain">
+  <div class="h">parent_transcript vs associated_transcript</div>
+  <div class="t">A PARENT is only ever a GENCODE transcript whose intron chain equals the
+  model's. NIC and NNC have a novel chain, so they have NO parent.
+  <b>associated_transcript</b> is merely the closest reference transcript and is
+  annotation only — it never feeds back into calibration.</div>
+</div>
+</div>
+    <div class="col">
+<div class="p lg">
+  <div class="ph"><div class="num">6</div><div class="ttl">Mono-exon track</div></div>
+  <div class="t">Runs entirely separately. Unspliced reads only ever group with each
+  other, so a single-exon stub can never absorb spliced read mass.</div>
+</div>
+
+<div class="p lg">
+  <div class="h">inside the last exon or 3'UTR of a known gene</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:30px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:36px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:52px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div style="width:78px;flex:none"></div><div style="width:24px;flex:none"></div><div class="ex" style="width:44px;background:#0e8f62"></div></div></div>
+  <div class="t">Trusted: with polyA capture this is RT drop-off in a long 3'UTR, and the
+  3' end is still correct.</div>
+  <div class="tag g">ENST…|3UTRfrag1</div>
+</div>
+
+<div class="p lg">
+  <div class="h">inside a gene body, not terminal</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:30px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:40px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div style="width:56px;flex:none"></div><div class="ex" style="width:40px;background:#0e8f62"></div></div><div class="cap ">AATAAA</div></div>
+  <div class="t">Needs an actual polyA site — otherwise discarded.</div>
+  <div class="tag g">GENE|APA1</div>
+</div>
+
+<div class="p lg">
+  <div class="h">intergenic</div>
+  <div class="t">Needs a polyA site and a higher support floor.</div>
+  <div class="tag g">NOVELMONO_chr1_3</div>
+</div>
+
+<div class="p la">
+  <div class="h a">every mono-exon model is now re-judged</div>
+  <div class="t">The track above asks "terminal exon or not". It never asks whether a
+  single-exon transcript could exist in that gene at all. <b>Panel 8 does.</b></div>
+</div>
+
+<div class="p l">
+  <div class="ph"><div class="num">7</div><div class="ttl">SQANTI3 view</div></div>
+  <div class="t">Since 0.4.2 every model also carries SQANTI3's own vocabulary, written
+  BESIDE <span class="mono">category</span> rather than instead of it, so the two
+  labellings are comparable on the same models.</div>
+  <ul>
+    <li><b>structural_category</b> — FSM / ISM / NIC / NNC / fusion / genic / intergenic</li>
+    <li><b>subcategory</b> — SQANTI3's own strings</li>
+    <li><b>terminal_class</b> — where the 3' end sits, independent of the chain</li>
+  </ul>
+  <div class="s">The two vocabularies do not map one-to-one. end3_annotated, end3_novel,
+  end5_alt and end5_extended all have an intron chain identical to an annotated
+  transcript, so SQANTI3 calls them FSM with an alternative-end subcategory — not four
+  kinds of novelty. Measured on the nine 0.5.1 runs: FSM is 17.6–20.2% of models under
+  flightcollapse's labels and 54.7–58.9% under SQANTI3's.</div>
+  <div class="tag">structural_category, subcategory, terminal_class in models.tsv</div>
+</div>
+</div>
+  </div>
+</div>
+
+<div class="band">
+  <div class="bandhead b2">
+    <span class="t">SECOND PASS — new in 0.5.0</span>
+    <span class="d">filters the finished catalogue · keep, remove, or replace with an explicitly inferred model · never builds a structure</span>
+  </div>
+  <div class="cols">
+    <div class="col">
+<div class="p la">
+  <div class="ph"><div class="num a">8</div><div class="ttl">Rule 1 — mono-exonic models judged against their gene</div></div>
+  <div class="t">Five classes, decided from the annotation alone. "Spans an intron" uses
+  <b>constitutively</b> intronic sequence — inside the gene span and exonic in no isoform.
+  Using any one transcript's introns would call an ordinary alternative-exon model a
+  read-through, because one isoform's exon is another's intron all over the genome.</div>
+</div>
+
+<div class="p lg">
+  <div class="h">A · gene is mono-exonic only &nbsp;→&nbsp; KEEP</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:110px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:92px;background:#0e8f62"></div></div></div>
+</div>
+<div class="p lg">
+  <div class="h">B · gene has mono + multi isoforms &nbsp;→&nbsp; KEEP</div>
+  <div class="dia"><div class="trk"><div class="lbl">tx 1</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:34px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">tx 2</div><div class="ex" style="width:108px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:92px;background:#0e8f62"></div></div></div>
+</div>
+<div class="p lx">
+  <div class="h">C · multi-exon gene, model spans an intron &nbsp;→&nbsp; REPLACE</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:44px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:34px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div class="ex" style="width:30px;background:#c7342e"></div><div class="ex" style="width:56px;background:#c7342e"></div><div style="width:30px;flex:none"></div></div><div class="cap ">≥ 10 bp of constitutively intronic sequence</div></div>
+</div>
+<div class="p lx">
+  <div class="h">D · multi-exon gene, model inside ONE exon &nbsp;→&nbsp; REPLACE</div>
+  <div class="dia"><div class="trk"><div class="lbl">GENCODE</div><div class="ex" style="width:34px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:50px;background:#b9b6b0"></div><div class="iv "></div><div class="ex" style="width:34px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">model</div><div style="width:48px;flex:none"></div><div class="ex" style="width:34px;background:#c7342e"></div><div style="width:40px;flex:none"></div></div></div>
+</div>
+<div class="p lx">
+  <div class="h">E · multi-exon gene, anything else &nbsp;→&nbsp; REPLACE</div>
+  <div class="t">Wholly intronic, or running off the end of the gene.</div>
+</div>
+<div class="p plain">
+  <div class="h">X · no gene (intergenic) — out of scope for A–E</div>
+  <div class="t">Left to the existing <span class="mono">monoexon_intergenic</span>
+  handling. <span class="mono">intergenic_policy = keep</span>.</div>
+</div>
+</div>
+    <div class="col">
+<div class="p la">
+  <div class="h a">a replaced model does not simply vanish</div>
+  <div class="dia"><div class="trk"><div class="lbl">removed</div><div class="ex" style="width:92px;background:#c7342e"></div></div><div class="trk"><div class="lbl">in place</div><div class="ex" style="width:34px;background:#a25900"></div><div class="iv "></div><div class="ex" style="width:44px;background:#a25900"></div><div class="iv "></div><div class="ex" style="width:34px;background:#a25900"></div></div><div class="cap ">the gene's best-supported isoform, marked INFERRED</div></div>
+  <div class="t">The gene's most-supported <b>emitted</b> multi-exon model is recorded in
+  its place, falling back to the reference canonical (MANE_Select &gt; Ensembl_canonical
+  &gt; basic &gt; longest) when the gene has no emitted spliced model. The removed
+  model's reads move onto it, so read accounting stays exact.</div>
+  <div class="s">The category, a flag and an <span class="mono">inferred=1</span> column
+  all say the same thing three times, because the one failure this must not have is an
+  inferred model being read as an observed one.</div>
+  <div class="tag a">INFERRED · inferred · inferred_source · inferred_transcript</div>
+</div>
+
+<div class="p plain">
+  <div class="h">measured across the nine 0.5.1 runs</div>
+  <div class="kv"><span>mono-exon models replaced (C/D/E)</span><span>167,467</span></div>
+  <div class="kv"><span>…from this sample's own data</span><span>156,902 (93.7%)</span></div>
+  <div class="kv"><span>…from the reference canonical</span><span>10,565 (6.3%)</span></div>
+  <div class="kv"><span>distinct INFERRED models created</span><span>7,715</span></div>
+  <div class="kv"><span>reads folded onto inferred models, BD144_kin</span><span>675,114</span></div>
+  <div class="kv hi"><span>catalogue shrinkage, whole second pass</span><span>−8.5% … −13.0%</span></div>
+  <div class="s">BD144_kin classes: A 3,006 · B 2,283 · C 10,734 · D 4,959 · E 5,548 ·
+  X 4,816. Roughly four in five in-gene mono-exon models are C/D/E.</div>
+</div>
+</div>
+    <div class="col w12">
+<div class="p la">
+  <div class="ph"><div class="num a">9</div><div class="ttl">Rule 2 — end3_novel must earn its 3' end</div></div>
+  <div class="t">On SIRV Set 4 this category was wrong 12/12 in the reference arm and 11/11
+  in the masked arm. The mechanism is internal priming: oligo-dT anneals to a genomic
+  A-stretch inside the transcript, and the resulting pile accumulates support exactly
+  like a real cleavage site.</div>
+  <div class="s"><b>Three things that cannot separate them.</b> A read floor cannot —
+  false ends reach p90 548 reads while true ones go down to 5. tail_molecule_frac cannot
+  — 0.96 vs 1.00 on BD176c — because it scores an A-run without asking what the genome
+  says underneath. And <b>cross-sample reproducibility cannot</b>: an internal-priming
+  site recurs in every library made from the same genome, so a model called in all three
+  HEK samples is not thereby real.</div>
+</div>
+
+<div class="p la">
+  <div class="h a">six tiers, strongest first — the first that speaks decides</div>
+  <div class="kv"><span><b>1 · atlas</b> — end sits on a catalogued polyA site</span><span>63.5%</span></div>
+  <div class="kv"><span><b>2 · nontemplated</b> — reads' tails exceed the genome's A-run</span><span>35.2%</span></div>
+  <div class="kv"><span><b>3 · composition</b> — hexamer + U/GU-rich DSE + tight peak</span><span>0.1%</span></div>
+  <div class="kv"><span><b>4 · short_read</b> — coverage demonstrably drops across the end</span><span>0.0%</span></div>
+  <div class="kv"><span><b>5 · calibrated</b> — terminal local FDR clears a ceiling</span><span>off by default</span></div>
+  <div class="kv"><span><b>6 · gene_dominant</b> — sole or best-supported model of its gene</span><span>1.2%</span></div>
+  <div class="s">Share of the 219,368 end3_novel models kept across the nine runs. The
+  tier is written on every judged model, so a downstream filter can pick its own
+  operating point without re-running anything.</div>
+  <div class="tag a">end3_second_pass_tier in models.tsv</div>
+</div>
+
+<div class="p la">
+  <div class="h a">tier 2 · the templated-tail test — the only per-MOLECULE discriminator</div>
+  <div class="dia"><div class="trk"><div class="lbl">genome</div><div class="ex" style="width:64px;background:#b9b6b0"></div><div class="ex" style="width:22px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">real</div><div class="ex" style="width:64px;background:#0e8f62"></div><div style="width:22px;flex:none"></div><div class="ex" style="width:46px;background:#0e8f62"></div></div><div class="cap ">read A-run runs far past the genomic A-run  →  non-templated excess ≥ 8 bp</div></div>
+  <div class="dia"><div class="trk"><div class="lbl">genome</div><div class="ex" style="width:64px;background:#b9b6b0"></div><div class="ex" style="width:22px;background:#b9b6b0"></div></div><div class="trk"><div class="lbl">primed</div><div class="ex" style="width:64px;background:#c7342e"></div><div class="ex" style="width:22px;background:#c7342e"></div></div><div class="cap ">the aligner consumed the genomic A's — no excess, no tail</div></div>
+  <div class="t">A genuine poly(A) tail is not in the genome. Everything needed was
+  already being measured — <span class="mono">reads.tail_len</span> per read since
+  0.1.17, <span class="mono">genome.fetch</span> since the beginning — and nothing
+  compared the two.</div>
+  <div class="s">Defaults: excess ≥ 8 bp on ≥ 50% of the model's reads, scanning
+  60 bp downstream. This is why the collapse must read the UNTRIMMED dedup BAM: a trimmed
+  read has no terminal A-run and the tier would silently have no opinion.</div>
+  <div class="tag a">genomic_a_run_3p · median_tail_excess · frac_reads_nontemplated</div>
+</div>
+
+<div class="p la">
+  <div class="h a">tier 3 · a contrast, not an absolute cut</div>
+  <div class="t">A real 3' end has a U/GU-rich downstream element at +5…+30; an
+  internal-priming site is A-rich. The tier scores
+  <span class="mono">(G+U) − A</span> ≥ 0.10 rather than an absolute G+U threshold,
+  because the window is ~25 bases and an absolute 0.45 cut is one base away from 0.40 —
+  neutral sequence crosses it by chance about half the time. Neutral sequence sits near
+  +0.25; an internal-priming site goes sharply negative.</div>
+  <div class="s">A single perc_a_downstream number cannot express this: on BD176c it moves
+  only 20 → 25 between FSM and end3_novel. Peak dispersion does separate them —
+  FSM 4.1 bp against end3_novel 34.6 bp — so a tight peak is required alongside.</div>
+</div>
+
+<div class="p lx">
+  <div class="h">why gene_dominant is LAST</div>
+  <div class="t">Used first it selects against the biology. A genuine proximal polyA site
+  usually carries a minority of a gene's molecules, while a strong internal-priming site
+  in a well-expressed gene is exactly the thing that becomes dominant. It exists to
+  rescue models the evidence tiers cannot speak to — 1.2% of survivors — not to
+  adjudicate the ones they can.</div>
+</div>
+
+<div class="p plain">
+  <div class="h">what the gate actually costs</div>
+  <div class="kv"><span>end3_novel models judged, nine runs</span><span>239,695</span></div>
+  <div class="kv"><span>kept</span><span>219,368</span></div>
+  <div class="kv hi"><span>dropped</span><span>7.3% – 10.0% per sample</span></div>
+  <div class="kv"><span>reads folded onto a surviving sibling, BD144_kin</span><span>103,393</span></div>
+  <div class="kv"><span>reads left unassigned by the second pass</span><span>0</span></div>
+  <div class="s">A dropped model's reads move to the best compatible survivor — same
+  intron chain first, then the gene's best model — so the read accounting closes.</div>
+</div>
+</div>
+    <div class="col w12">
+<div class="p la">
+  <div class="h a">the separation is the point</div>
+  <div class="t">The first pass is <b>unchanged</b>: same reads, same junction curation,
+  same suffix resolution, same 3'-peak clustering, same models. The second pass runs
+  afterwards on the catalogue the first pass produced, and may only keep a model, remove
+  it, or replace it with an explicitly inferred one. <b>It never builds a structure from
+  scratch.</b></div>
+  <div class="s">A filter folded into model construction cannot be turned off, cannot be
+  compared against its own absence, and cannot report what it cost. This one writes one
+  row per decision and can be disabled with a flag — <span class="mono">--no-second-pass</span>
+  reproduces the 0.4.6 catalogue from the same binary.</div>
+  <div class="tag a">&lt;prefix&gt;.secondpass.tsv — one row per decision, with its reason</div>
+</div>
+
+<div class="p l">
+  <div class="ph"><div class="num a">0</div><div class="ttl">Contig-parallel execution</div></div>
+  <div class="t">A contig's result depends on no other contig, and all three calibrated
+  models are fitted per contig already — so distributing contigs across processes changes
+  no calibration, no threshold and no decision.</div>
+  <div class="s">What is genuinely shared is small and all of it lives in the parent:
+  model IDs and the PB.N gene numbering (assigned in contig order), read_stat and group
+  (stitched from per-contig shards), and the molecule matrix (accumulated from count
+  shards). <span class="mono">fork</span> only — under spawn every worker would re-read
+  the GTF, which costs more than the parallelism saves.</div>
+  <div class="kv"><span>BD144_kin, summed contig work</span><span>2.24 h</span></div>
+  <div class="kv"><span>wall clock at −j 8</span><span>0.65 h</span></div>
+  <div class="kv hi"><span>speed-up</span><span>3.5×</span></div>
+  <div class="kv"><span>floor set by the slowest contig (chr1)</span><span>997 s = 43% of wall</span></div>
+  <div class="s">Longest-first dispatch, so the tail is not a whole chr1 long. Memory, not
+  cores, is the binding constraint: peak RSS ≈ workers × per-contig peak, and
+  <span class="mono">worker_count()</span> clamps against MemAvailable.</div>
+</div>
+
+<div class="p la">
+  <div class="h a">0.5.1 · a killed worker no longer hangs the run</div>
+  <div class="t">multiprocessing.Pool has no abrupt-death detection. When a worker is
+  SIGKILLed — the OOM killer is how that happens here — the pool quietly forks a
+  replacement, but the task it was holding produces no result and
+  <span class="mono">imap_unordered</span> waits for it forever.</div>
+  <div class="s">Observed: BD144_kin sat at 23 of 24 contigs for two and a half hours
+  with every worker idle and nothing in the log. The parent now tracks which pid owns
+  which contig, notices when one disappears, and re-runs that contig itself — serially,
+  in the parent, after the pool closes, because if the cause was memory then
+  re-dispatching into a full pool would just kill it again.</div>
+</div>
+
+<div class="p lg">
+  <div class="ph"><div class="num">10</div><div class="ttl">Invariants — checked every run</div></div>
+  <ul>
+    <li><b>mono-exon read mass = unspliced read fraction</b></li>
+    <li><b>model_is_min must not be ≈ 1.0</b><br><span class="s">if the model is always the
+      shortest member of its own group, the representative rule is inverted</span></li>
+    <li><b>median log2(read span / model span) ≈ 0</b></li>
+    <li><b>unspliced reads are accounted for</b></li>
+    <li><b>the decoy set has not collapsed</b></li>
+    <li><b>rejected junctions carry LESS evidence than kept ones</b></li>
+    <li><b>no 3' end has moved further than the bound</b></li>
+    <li><b>the polyA tail was actually measured</b></li>
+    <li class="a"><b>a parallel run is byte-identical to a serial one</b><br>
+      <span class="s">asserted in tests/test_parallel.py — model IDs, PB.N numbering,
+      read_stat, group and the molecule matrix. If −j 4 changed one model ID, no
+      cross-sample comparison could be trusted again.</span></li>
+    <li class="a"><b>the second pass leaves no read unassigned</b></li>
+  </ul>
+</div>
+</div>
+  </div>
+</div>
+
+<div class="foot">
+  <b>Outputs</b>
+  <span>sorted GTF / GFF · read_stat.txt · group.txt · abundance.txt · flnc_count.txt ·
+  models.tsv · junctions.tsv (with drop_reason) · group_chains.tsv ·
+  <b style="color:#a25900">secondpass.tsv</b> · <b style="color:#a25900">monoexon_rejected.tsv</b> ·
+  cell × transcript UMI matrix · qc.json / qc.md</span>
+  <span class="right">flightcollapse v0.5.1 · snapshot</span>
+</div>
+
+</body></html>

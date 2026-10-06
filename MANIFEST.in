@@ -3,4 +3,9 @@ include LICENSE
 include PUBLISHING.md
 recursive-include docs *.md *.png *.svg *.pdf
 recursive-include tests *.py
-
+recursive-include experiments *.py *.md *.sh *.tsv *.txt
+recursive-include tools *.py *.md *.sh *.tsv *.txt
+include CHANGELOG.md
+include docs/make_schematic.py
+include docs/make_logic_sheet.py
+include docs/*.html

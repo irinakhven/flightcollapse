@@ -29,11 +29,12 @@ from .config import (
     MoleculeParams,
     MonoexonParams,
     OutputParams,
+    PosthocParams,
     ScoringParams,
 )
 from .model import TranscriptModel
 
-__version__ = "0.1.18"
+__version__ = "0.6.3"
 __all__ = [
     "Config",
     "AlignmentGates",
@@ -44,6 +45,7 @@ __all__ = [
     "ScoringParams",
     "MoleculeParams",
     "OutputParams",
+    "PosthocParams",
     "TranscriptModel",
     "run",
     "__version__",

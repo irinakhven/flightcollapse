@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1000 286" role="img" xmlns="http://www.w3.org/2000/svg" aria-label="flightcollapse in five steps: admit reads, curate junctions, resolve 5-prime ends, place 3-prime ends, consolidate. The final step treats the two ends differently — a 200 bp tolerance at the 3-prime end and a structural sub-chain filter at the 5-prime end.">
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+          markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 1 L 9 5 L 0 9 z" fill="context-stroke"/>
+  </marker>
+</defs>
+<rect x="24.0" y="86" width="169.6" height="104" rx="5" fill="none" stroke="#141413" stroke-width="1.4"/>
+<text x="108.8" y="130.0" text-anchor="middle" font-size="13" font-weight="600" fill="#141413">Admit reads</text>
+<text x="108.8" y="147.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">one set of</text>
+<text x="108.8" y="160.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">alignment gates</text>
+<rect x="219.6" y="86" width="169.6" height="104" rx="5" fill="none" stroke="#141413" stroke-width="1.4"/>
+<text x="304.4" y="130.0" text-anchor="middle" font-size="13" font-weight="600" fill="#141413">Curate junctions</text>
+<text x="304.4" y="147.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">support · motif</text>
+<text x="304.4" y="160.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">RT-switch · FDR</text>
+<line x1="193.6" y1="138.0" x2="217.6" y2="138.0" stroke="#141413" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="415.2" y="86" width="169.6" height="104" rx="5" fill="none" stroke="#141413" stroke-width="1.4"/>
+<text x="500.0" y="130.0" text-anchor="middle" font-size="13" font-weight="600" fill="#141413">Resolve 5′ ends</text>
+<text x="500.0" y="147.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">suffix chains fold</text>
+<text x="500.0" y="160.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">into the full chain</text>
+<line x1="389.2" y1="138.0" x2="413.2" y2="138.0" stroke="#141413" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="610.8" y="86" width="169.6" height="104" rx="5" fill="none" stroke="#141413" stroke-width="1.4"/>
+<text x="695.6" y="130.0" text-anchor="middle" font-size="13" font-weight="600" fill="#141413">Place 3′ ends</text>
+<text x="695.6" y="147.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">molecule-weighted</text>
+<text x="695.6" y="160.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">peaks + polyA</text>
+<line x1="584.8" y1="138.0" x2="608.8" y2="138.0" stroke="#141413" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="806.4" y="86" width="169.6" height="104" rx="5" fill="none" stroke="#2a78d6" stroke-width="2.2"/>
+<text x="891.2" y="130.0" text-anchor="middle" font-size="13" font-weight="600" fill="#141413">Consolidate</text>
+<text x="891.2" y="147.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">3′ ≤ 200 bp merge</text>
+<text x="891.2" y="160.0" text-anchor="middle" font-size="10.5" fill="#6b6a66">5′ sub-chain filter</text>
+<line x1="780.4" y1="138.0" x2="804.4" y2="138.0" stroke="#141413" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="24" y="56" font-size="11.5" fill="#6b6a66">aligned long reads, one cell barcode and UMI each</text>
+<text x="976" y="56" text-anchor="end" font-size="11.5" fill="#6b6a66">reference-anchored transcript models</text>
+<path d="M 695.5999999999999 190 V 210" fill="none" stroke="#6b6a66" stroke-width="1" stroke-dasharray="3 3"/>
+<path d="M 891.1999999999999 190 V 210" fill="none" stroke="#2a78d6" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="500.0" y="224" text-anchor="middle" font-size="12" font-weight="600" fill="#141413">The two ends are not treated alike</text>
+<text x="500.0" y="241" text-anchor="middle" font-size="11" fill="#6b6a66">the 3′ end is a peak position, so it gets a tolerance; the 5′ end is a containment relation, so it gets a structural filter</text>
+</svg>

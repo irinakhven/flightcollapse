@@ -58,7 +58,7 @@ CHAIN = ((1200, 2000), (2200, 3000))
 def _build(tmp_path, three_prime, **kw):
     ref = ReferenceIndex.from_gtf(_gtf(tmp_path), verbose=False)
     reads = _reads(60, three_prime)
-    params = EndParams(**kw)
+    params = EndParams(emit_unresolved_3p=True, **kw)
     return ref, build_models_for_group(
         reads, "chrT", "+", CHAIN, np.arange(60), ref, None, None,
         params, MonoexonParams(), "ENSTLONG", "G1",

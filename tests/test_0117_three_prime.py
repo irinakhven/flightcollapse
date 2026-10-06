@@ -68,6 +68,11 @@ def _reads(tts_per_read, cells=None, umis=None):
 
 
 def _build(tmp_path, reads, chain_tx=("ENSTLONG", "ENSTSHORT"), **kw):
+    # 0.3.0 stopped emitting `end3_unresolved` by default (it was wrong 20/20
+    # and 23/23 on SIRV Set 4). These tests are about what that category does
+    # when it IS emitted, so they ask for it explicitly; the default itself is
+    # pinned in test_new_defaults_are_the_documented_ones below.
+    kw.setdefault("emit_unresolved_3p", True)
     ref = ReferenceIndex.from_gtf(_gtf(tmp_path), verbose=False)
     return build_models_for_group(
         reads, "chrT", "+", CHAIN, np.arange(reads.n), ref, None, None,
@@ -232,7 +237,9 @@ def test_new_defaults_are_the_documented_ones():
     p = EndParams()
     assert p.max_3p_fallback_dist == 300
     assert p.unresolved_3p_category == "end3_unresolved"
-    assert p.emit_unresolved_3p is True
+    # 0.3.0: flipped on SIRV evidence -- the category never scored a single
+    # correct call in any arm, and dropping it costs zero recall.
+    assert p.emit_unresolved_3p is False
     assert p.weight_ends_by_molecule is True
     assert p.polya_tail_gates_novel_end is True        # 0.1.18: the tail decides
     assert p.min_polya_tail_frac == 0.0                # the biased conjunction is off

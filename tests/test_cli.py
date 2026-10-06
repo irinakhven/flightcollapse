@@ -220,3 +220,38 @@ def test_no_strict_reports_instead_of_exiting_nonzero(sim, tmp_path, monkeypatch
     assert cli.main(base + ["--no-strict"]) == 0
     assert "model_ids_are_unique" in capsys.readouterr().err
     assert cli.main(base) == 1
+
+
+# ---------------------------------------------------------------------- #
+# 0.2.0: both invocation forms must work.
+#
+# Only the console script did until now, which is invisible until a wrapper
+# script reaches the venv by absolute path -- `$ENV/bin/python -m flightcollapse`
+# -- and gets "'flightcollapse' is a package and cannot be directly executed".
+# That surfaced as a setup script reporting the wrong build was installed.
+# ---------------------------------------------------------------------- #
+def test_module_invocation_works():
+    import subprocess
+    import sys
+
+    from flightcollapse import __version__
+
+    r = subprocess.run(
+        [sys.executable, "-m", "flightcollapse", "--version"],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert __version__ in (r.stdout + r.stderr)
+
+
+def test_module_invocation_exposes_the_cage_flags():
+    import subprocess
+    import sys
+
+    r = subprocess.run(
+        [sys.executable, "-m", "flightcollapse", "run", "--help"],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "--cage-bed" in r.stdout
+    assert "--cage-reptss" in r.stdout

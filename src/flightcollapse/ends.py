@@ -48,8 +48,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .config import EndParams, MonoexonParams
-from .genome import Genome, PolyASiteAtlas
+from .config import CoverageParams, EndParams, MonoexonParams, TerminalParams, TssParams
+from .coverage import CoverageTrack, blank_coverage_evidence
+from .genome import Genome, PolyASiteAtlas, TSSAtlas
 from .intervals import Chain, Exon, build_exons, signed_5p_offset
 from .model import TranscriptModel, polya_evidence
 from .molecules import NO_CELL, NO_UMI, n_cells, n_molecules
@@ -204,6 +205,11 @@ def build_models_for_group(
     chain_tx: Sequence[str],
     gene_id: Optional[str],
     umi_hamming: int = 1,
+    cage: Optional[TSSAtlas] = None,
+    tss_params: Optional[TssParams] = None,
+    terminal_params: Optional[TerminalParams] = None,
+    cov: Optional[CoverageTrack] = None,
+    cov_params: Optional[CoverageParams] = None,
 ) -> List[TranscriptModel]:
     """Split one chain group into 3'-end models and name them against the reference.
 
@@ -455,6 +461,29 @@ def build_models_for_group(
             signed_5p_offset(three, weighted_median(tts[sel_mask], wts[sel_mask]), strand)
         )
         m.evidence["n_5p_truncated_reads"] = n_trunc
+        # 0.2.0: external 5' evidence, RECORDED on every model -- including the
+        # ones that were never at risk of merging. The distribution over FSM
+        # models is what says whether the thresholds are sane for this data,
+        # and it cannot be reconstructed from the rescued models alone.
+        m.evidence.update(
+            cage_evidence(contig, five, strand, cage, tss_params)
+        )
+        # -- 0.3.0: the fields the terminal score and the pruning need -------
+        # `end_is_annotated` is the single fact that makes a 3' end not a
+        # discovery: the category already encodes whether the peak snapped onto
+        # an annotated end, so read it off rather than recomputing it.
+        m.evidence["end_is_annotated"] = int(cat in ("FSM", "end3_annotated"))
+        d_site = ev.get("dist_to_polya_site")
+        m.evidence["end_at_polya_site"] = int(
+            d_site is not None and d_site <= params.max_3p_diff
+        )
+        m.evidence["dist_polya_site"] = "" if d_site is None else int(d_site)
+        m.evidence["dist_ann_tts"] = abs(d3) if d3 is not None else ""
+        m.evidence.update(_coverage_evidence(contig, three, five, exons,
+                                             strand, cov, cov_params))
+        if (m.evidence.get("in_cage_peak")
+                and "5p_extension" in set(flags)):
+            m.flags = sorted(set(m.flags) | {"cage_supported_5p_extension"})
         offs = np.array(
             [signed_5p_offset(int(t), three, strand) for t in tss[sel_mask]], float
         )
@@ -462,7 +491,53 @@ def build_models_for_group(
             m.evidence[f"five_prime_p{p}"] = float(np.percentile(offs, p))
         models.append(m)
 
-    return _dedupe(models)
+    models = _dedupe(models)
+    _attach_relative_terms(models, wts, read_idx)
+    if terminal_params is not None and terminal_params.prune_terminal_variants:
+        models = prune_terminal_variants(models, strand, terminal_params, support)
+        _attach_relative_terms(models, wts, read_idx)
+    return models
+
+
+def cage_evidence(
+    contig: str,
+    five: int,
+    strand: str,
+    cage: Optional[TSSAtlas],
+    params: Optional[TssParams],
+) -> Dict[str, object]:
+    """External TSS-atlas evidence at a model's 5' end.
+
+    Always returns the same keys so the table has no holes and a run without an
+    atlas is distinguishable from a run whose atlas found nothing: the former
+    leaves the distances empty, the latter fills them in.
+
+    This function records; it never decides.  Nothing downstream may reject a
+    model because these come back empty -- FANTOM5's panel is not your samples.
+    """
+    blank: Dict[str, object] = {
+        "in_cage_peak": "",
+        "dist_to_cage_peak": "",
+        "dist_to_cage_reptss": "",
+        "cage_peak_id": "",
+    }
+    if cage is None or params is None or not params.enabled:
+        return blank
+    ev = cage.evidence(
+        contig, int(five), strand,
+        peak_slack=params.peak_slack,
+        reptss_window=params.max_dist_to_reptss,
+    )
+    return {
+        "in_cage_peak": int(bool(ev["in_cage_peak"])),
+        "dist_to_cage_peak": (
+            "" if ev["dist_to_cage_peak"] is None else int(ev["dist_to_cage_peak"])
+        ),
+        "dist_to_cage_reptss": (
+            "" if ev["dist_to_cage_reptss"] is None else int(ev["dist_to_cage_reptss"])
+        ),
+        "cage_peak_id": ev["cage_peak_id"],
+    }
 
 
 def tail_evidence(
@@ -651,3 +726,284 @@ def _dedupe(models: List[TranscriptModel]) -> List[TranscriptModel]:
             cur.n_cells = max(cur.n_cells, m.n_cells)
             cur.flags = sorted(set(cur.flags) | set(m.flags))
     return list(by_struct.values())
+
+
+# ---------------------------------------------------------------------- #
+# 0.3.0: competitive terminal pruning
+# ---------------------------------------------------------------------- #
+def _coverage_evidence(
+    contig: str,
+    three: int,
+    five: int,
+    exons: Sequence[Exon],
+    strand: str,
+    cov: Optional[CoverageTrack],
+    params: Optional[CoverageParams],
+) -> Dict[str, object]:
+    """Short-read coverage at both ends of a model, and across its exons."""
+    out = blank_coverage_evidence()
+    if cov is None or params is None or not params.enabled:
+        return out
+    step = cov.three_prime_step(contig, three, strand, params)
+    ratio = cov.tss_ratio(contig, five, strand, params)
+    cont = cov.continuity(contig, list(exons))
+    for d in (step, ratio):
+        for k, v in d.items():
+            out[k] = "" if v is None else (int(v) if isinstance(v, bool) else v)
+    out["sr_cov_continuity"] = "" if cont is None else round(float(cont), 3)
+    return out
+
+
+def _attach_relative_terms(
+    models: List[TranscriptModel], wts: np.ndarray, read_idx: np.ndarray
+) -> None:
+    """Each model's standing relative to its siblings on the same chain.
+
+    A 3' peak is not credible or incredible on its own -- it is credible
+    relative to the other peaks of its own chain group. Nothing in the package
+    measured that before 0.3.0, which is why the absolute gates could not tell
+    a real minor cleavage site from one rung of a drop-off ladder.
+    """
+    if not models:
+        return
+    support = np.array([float(max(m.n_mols, m.n_reads, 1)) for m in models])
+    dominant = float(support.max())
+    total = float(support.sum())
+    for m, s in zip(models, support):
+        m.evidence["chain_share"] = round(s / total, 6) if total else 1.0
+        m.evidence["ratio_to_dominant_peak"] = round(s / dominant, 6) if dominant else 1.0
+        m.evidence["n_3p_peaks"] = len(models)
+
+
+def _three_prime_of(m: TranscriptModel, strand: str) -> int:
+    return m.exons[-1][1] if strand == "+" else m.exons[0][0]
+
+
+def _is_more_distal(a: int, b: int, strand: str) -> bool:
+    """Is 3' end ``a`` further downstream than ``b``, in transcript orientation?"""
+    return a > b if strand == "+" else a < b
+
+
+def _is_promoted(m: TranscriptModel, params: TerminalParams) -> bool:
+    """Has this non-annotated 3' end earned a place in the catalogue?
+
+    Three ways, any one of which is enough, and none of which is a read count:
+
+    * a catalogued polyA site -- somebody else measured cleavage here;
+    * a short-read coverage step -- signal demonstrably stops here;
+    * a peak tight enough to be a cleavage event.
+
+    The third is the one that does the work where no external evidence exists,
+    and the reason it can is that peak sharpness separates correct from wrong
+    3' ends at every read depth: on SIRV, median dispersion is 0.0-2.0 bp for
+    ends within 100 bp of a real transcript end against 21-26 bp for the rest,
+    and that holds just as cleanly at <= 5 reads as at > 50.
+    """
+    ev = m.evidence
+    if int(ev.get("end_at_polya_site", 0) or 0):
+        return True
+    if ev.get("sr_3p_step_supported") == 1:
+        return True
+    disp = ev.get("three_prime_dispersion")
+    try:
+        return disp is not None and float(disp) <= params.max_dispersion_promote
+    except (TypeError, ValueError):
+        return False
+
+
+def _tier_group(models: List[TranscriptModel], params: TerminalParams) -> None:
+    """Label each surviving 3' end, competing the candidates against each other.
+
+    ``terminal_tier`` is one of:
+
+    ``annotated``   the 3' end matches an annotated TTS. Not a discovery.
+    ``high``        promoted, and it wins the competition within its chain
+                    group -- it carries at least ``min_candidate_share`` of the
+                    group's candidate molecules, or sits at a catalogued site.
+    ``reported``    promoted, but a minority of the candidate mass.
+    ``unsupported`` not promoted, and no sibling was available to absorb it.
+                    Emitted because its reads have nowhere else to go, not
+                    because the end is believed.
+
+    The competition is candidate-versus-candidate and never candidate-versus-
+    FSM: a genuine proximal polyA site usually carries a minority of a gene's
+    molecules, so comparing against the full-length variant selects against the
+    biology. Measured on SIRV, "beats the annotated variant" is 11.7% precise
+    against 63.6-90.0% for this comparison at the same threshold.
+
+    It is a tier and not a gate because gating costs 62-76% of the true novel
+    ends. Everything here is emitted; this decides only what is marked.
+    """
+    cand = [m for m in models
+            if not int(m.evidence.get("end_is_annotated", 0) or 0)
+            and _is_promoted(m, params)]
+    total = sum(float(m.n_mols if m.n_mols > 0 else max(m.n_reads, 1)) for m in cand)
+    for m in models:
+        ev = m.evidence
+        if int(ev.get("end_is_annotated", 0) or 0):
+            ev["terminal_tier"] = "annotated"
+            ev.setdefault("candidate_share", "")
+            continue
+        if not _is_promoted(m, params):
+            ev["terminal_tier"] = "unsupported"
+            ev.setdefault("candidate_share", "")
+            continue
+        supp = float(m.n_mols if m.n_mols > 0 else max(m.n_reads, 1))
+        share = (supp / total) if total > 0 else 1.0
+        ev["candidate_share"] = round(share, 4)
+        ev["terminal_tier"] = (
+            "high" if (share >= params.min_candidate_share
+                       or int(ev.get("end_at_polya_site", 0) or 0))
+            else "reported"
+        )
+
+
+def prune_terminal_variants(
+    models: List[TranscriptModel],
+    strand: str,
+    params: TerminalParams,
+    support_fn=None,
+) -> List[TranscriptModel]:
+    """Absorb a shorter 3' variant into a stronger compatible sibling.
+
+    The 5' path has done exactly this since 0.1.7: a 5'-truncated pile folds
+    into its parent and is counted in ``n_5p_truncated_reads`` rather than
+    emitted, because otherwise every well-expressed gene grows a ladder of
+    truncation models. The 3' path never had the equivalent, on the reasoning
+    that under oligo-dT the 3' end is the anchored one.
+
+    It is -- for PLACEMENT. Measured on BD176c, 3'-end dispersion is 13.9 bp
+    and annotation moves a model's 3' end off its own reads by a median of
+    0 bp. But 34.2% of that catalogue is still a terminal-3' variant, 31.4% of
+    those sit on a parent that already has an FSM model, and one chain can
+    carry twelve 3' models. Trustworthy placement and trustworthy multiplicity
+    are different claims.
+
+    The rule is relative, because absolute ones provably do not work here. On
+    SIRV Set 4 all 58 right-chain-wrong-end models sat on a chain that already
+    had an exact model, so absorbing every one of them costs no recall at all;
+    a flat 100-read floor over the same models keeps 13 false ones and loses 2
+    true ones, because RT drop-off recurs across molecules and accumulates
+    support exactly like a real cleavage site.
+
+    A shorter variant survives by having evidence its sibling does not:
+    an annotated end, a catalogued polyA site, or a peak tight enough to be a
+    real cleavage event. Never by read count alone.
+    """
+    if len(models) < 2:
+        if models and params.promote_terminal_ends:
+            _tier_group(models, params)
+        return models
+
+    order = sorted(
+        range(len(models)),
+        key=lambda i: _three_prime_of(models[i], strand),
+        reverse=(strand == "+"),
+    )
+    # MOLECULES, not reads. `max(n_mols, n_reads, 1)` -- what this was --
+    # always returns n_reads, since n_reads >= n_mols by construction, so the
+    # rule silently compared PCR copies. A model with 60 reads from 2 cells and
+    # one with 60 reads from 40 cells are different claims and the comparison
+    # has to see that. Falls back to reads only when there is no UMI table.
+    support = [float(m.n_mols if m.n_mols > 0 else max(m.n_reads, 1)) for m in models]
+    absorbed: Dict[int, int] = {}
+    promoted = [_is_promoted(m, params) for m in models]
+    annotated = [bool(int(m.evidence.get("end_is_annotated", 0) or 0)) for m in models]
+    # Is there anything in this group worth folding into? If NOTHING earned a
+    # place -- a chain whose every 3' peak is diffuse, uncatalogued and without
+    # coverage -- then promotion has no opinion about which end is real, and
+    # falling through would hand back the whole truncation ladder as
+    # `unsupported`. That is the failure the 0.3.0 absorption existed to stop,
+    # so in that case the old dominance rule still runs and the ladder still
+    # collapses; the survivor is simply tiered `unsupported` rather than
+    # believed.
+    has_anchor = any(p or a for p, a in zip(promoted, annotated))
+
+    for rank, i in enumerate(order):
+        m = models[i]
+        ev = m.evidence
+        if int(ev.get("end_is_annotated", 0) or 0):
+            continue                      # not a discovery; never absorbed
+        if params.promote_terminal_ends:
+            # 0.4.0: promotion, not escape. A candidate that earns its place
+            # survives; everything else looks for somewhere to fold into.
+            if promoted[i]:
+                continue
+        else:
+            # 0.3.x behaviour, kept so the change stays attributable
+            if params.keep_if_atlas_site and int(ev.get("end_at_polya_site", 0) or 0):
+                continue
+            disp = ev.get("three_prime_dispersion")
+            try:
+                if disp is not None and float(disp) <= params.max_dispersion_for_credible_end:
+                    continue
+            except (TypeError, ValueError):
+                pass
+            if ev.get("sr_3p_step_supported") == 1:
+                continue
+
+        my_three = _three_prime_of(m, strand)
+        best = None
+        for j in order[:rank]:
+            if j in absorbed:
+                continue
+            their_three = _three_prime_of(models[j], strand)
+            if not _is_more_distal(their_three, my_three, strand):
+                continue
+            if abs(their_three - my_three) > params.max_truncation_dist:
+                continue
+            if params.promote_terminal_ends and has_anchor:
+                # only a model that earned its own place can absorb another;
+                # otherwise an unpromoted peak could swallow reads and stay.
+                if not (promoted[j] or annotated[j]):
+                    continue
+                # no support-ratio gate here: under promotion the reason to
+                # absorb is that THIS model did not earn its place, not that
+                # the sibling out-votes it. Requiring the sibling to dominate
+                # is what let unpromoted peaks survive in 0.3.x whenever no
+                # neighbour happened to be twice their size.
+            elif support[j] < params.sibling_support_ratio * support[i]:
+                continue
+            if best is None or support[j] > support[best]:
+                best = j
+        if best is not None:
+            absorbed[i] = best
+
+    if not absorbed:
+        if params.promote_terminal_ends:
+            _tier_group(models, params)
+        return models
+
+    # resolve chains of absorption so reads land on the surviving model
+    def final(i: int) -> int:
+        seen = set()
+        while i in absorbed and i not in seen:
+            seen.add(i)
+            i = absorbed[i]
+        return i
+
+    for i, _ in list(absorbed.items()):
+        tgt = final(i)
+        src, dst = models[i], models[tgt]
+        dst.reads = np.concatenate([dst.reads, src.reads])
+        dst.n_reads += src.n_reads
+        prev = int(dst.evidence.get("n_3p_truncated_reads", 0) or 0)
+        dst.evidence["n_3p_truncated_reads"] = prev + src.n_reads
+        dst.flags = sorted(set(dst.flags) | {"absorbed_3p_variant"})
+
+    survivors = [m for i, m in enumerate(models) if i not in absorbed]
+    if support_fn is not None:
+        for m in survivors:
+            if "absorbed_3p_variant" in m.flags:
+                nm, nc, has = support_fn(m.reads)
+                if has:
+                    m.n_mols, m.n_cells = nm, nc
+    for m in survivors:
+        m.evidence.setdefault("n_3p_truncated_reads", 0)
+    # tiering runs AFTER absorption, on the models that actually survive and
+    # with the molecule counts they ended up with. Competing the pre-absorption
+    # set would let a model that is about to disappear dilute the shares of the
+    # ones that remain.
+    if params.promote_terminal_ends:
+        _tier_group(survivors, params)
+    return survivors
