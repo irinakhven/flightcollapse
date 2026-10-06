@@ -33,7 +33,7 @@ from flightcollapse.scoring import score_chains
 
 def _empty():
     # groups=[] short-circuits the loop, so the other arguments are never read
-    return _chain_features([], None, None, None, None, None, {})
+    return _chain_features([], None, None, None, None, None, None, {})
 
 
 def test_no_chain_groups_still_yields_a_usable_frame():

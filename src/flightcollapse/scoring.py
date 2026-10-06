@@ -305,6 +305,14 @@ CHAIN_FEATURES: Tuple[str, ...] = (
     "log_dist_ann_tts",
     "log_dist_ann_tss",
     "polya_evidence",
+    # 0.2.0: the first genuinely EXTERNAL signal available at the chain
+    # level.  The chain decoy set leans on low support and on "carries a
+    # junction that failed curation", both of which are internal to the same
+    # long reads being scored; a CAGE peak is not.  It does not de-circularise
+    # the score on its own, but it is the first ingredient that could.
+    # Constant (all zeros) when no atlas is supplied, which standardisation
+    # turns into a no-op rather than a bias.
+    "cage_support",
 )
 
 
@@ -322,6 +330,10 @@ def chain_design(feat: pd.DataFrame) -> np.ndarray:
         "log_dist_ann_tts": np.log10(1.0 + np.abs(feat["dist_ann_tts"].to_numpy(float))),
         "log_dist_ann_tss": np.log10(1.0 + np.abs(feat["dist_ann_tss"].to_numpy(float))),
         "polya_evidence": feat["polya_evidence"].to_numpy(float),
+        "cage_support": (
+            feat["cage_support"].to_numpy(float)
+            if "cage_support" in feat.columns else np.zeros(n)
+        ),
     }
     X = np.column_stack([np.ones(n)] + [cols[k] for k in CHAIN_FEATURES])
     return np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
@@ -519,4 +531,157 @@ def score_chains(feat: pd.DataFrame, params: ScoringParams) -> Tuple[pd.DataFram
         np.where(feat["n_novel_junctions"].to_numpy() == 1, 1, 2),
     )
     res = m.fit_predict(feat, chain_design, chain_anchors, CHAIN_FEATURES, params, stratum=strat)
+    return res, m
+
+
+# ---------------------------------------------------------------------- #
+# terminal (3'-end) level -- new in 0.3.0
+# ---------------------------------------------------------------------- #
+#: Features for scoring a putative 3' end.
+#:
+#: ``log_dispersion`` leads deliberately. Measured on BD176c, median 3'-end
+#: dispersion is 4.1 bp for FSM, 6.4 for end3_annotated and 3.2 for mono-exon
+#: models, against 34.6 for end3_novel and 14.5 for end3_unresolved -- an
+#: eight-fold separation between the categories that are right and the ones
+#: that are wrong. Cleavage is precise, so a genuine site is tight and an RT
+#: drop-off pile is diffuse. Nothing else comes close: read support is 10 vs 11
+#: and tail fraction 0.96 vs 1.00 between those same groups.
+#:
+#: ``log_ratio_to_dominant`` is the relative term the absolute gates never had.
+#: A 3' peak is not credible or incredible on its own; it is credible relative
+#: to the other peaks on its own chain.
+#: Everything the terminal score is allowed to read.
+#:
+#: 0.3.1 REMOVED three features that were also the LABEL DEFINITIONS:
+#: ``log_dist_ann_tts`` and ``log_dist_polya_site`` (thresholded, these are
+#: exactly ``pos``) and ``perc_a_downstream`` (thresholded, exactly ``decoy``).
+#: A feature that defines the label dominates the fit and separates almost
+#: perfectly, so the local FDR degenerated into a restatement of "is this end
+#: in GENCODE or PolyASite?" -- which, for a tool whose purpose is finding ends
+#: that are in neither, would delete the discovery set and call it QC.
+#:
+#: Measured on BD176c 0.3.0: a ceiling of 0.05 agreed with the bare
+#: "end is not catalogued" flag on 93% of 155,192 models, and the median
+#: ``three_prime_dispersion`` across lFDR bands ran 4.0 -> 7.5 -> 16.5 -> 8.0
+#: -> 11.0, i.e. NOT MONOTONIC -- the discriminator the SIRV benchmark
+#: identified was contributing nothing, while ``perc_a_downstream`` ran a clean
+#: 15 -> 20 -> 25 -> 30 -> 40 because it *was* the decoy definition.
+#:
+#: The three stay in the label definitions, where they belong: they are how we
+#: know a positive from a decoy. They must not also be how we score.
+TERMINAL_FEATURES: Tuple[str, ...] = (
+    "log_dispersion",
+    "log_support",
+    "log_cells",
+    "logit_chain_share",
+    "log_ratio_to_dominant",
+    "tail_molecule_frac",
+    "log_tail_len",
+    "polya_motif_found",
+    "sr_3p_step",
+)
+
+
+def terminal_design(feat: pd.DataFrame) -> np.ndarray:
+    n = len(feat)
+
+    def col(name: str, default: float = 0.0) -> np.ndarray:
+        if name not in feat.columns:
+            return np.full(n, default, float)
+        return pd.to_numeric(feat[name], errors="coerce").to_numpy(float)
+
+    reads = col("n_reads", 1.0)
+    mols = col("n_mols", 0.0)
+    support = np.where(mols > 0, mols, reads)
+    cols = {
+        "log_dispersion": np.log10(1.0 + np.abs(col("three_prime_dispersion"))),
+        "log_support": np.log10(1.0 + support),
+        "log_cells": np.log10(1.0 + col("n_cells")),
+        "logit_chain_share": _logit(np.clip(col("chain_share", 1.0), 0.0, 1.0)),
+        "log_ratio_to_dominant": np.log10(
+            np.clip(col("ratio_to_dominant_peak", 1.0), 1e-3, 1e3)
+        ),
+        "tail_molecule_frac": col("tail_molecule_frac"),
+        "log_tail_len": np.log10(1.0 + col("median_tail_len")),
+        "polya_motif_found": col("polya_motif_found"),
+        # absent coverage must be a neutral 0, not a fabricated ratio
+        "sr_3p_step": col("sr_3p_step_ratio", 0.0),
+        # dist_ann_tts, dist_polya_site and perc_a_downstream are deliberately
+        # NOT here -- see TERMINAL_FEATURES. They define the anchors.
+    }
+    missing = [k for k in TERMINAL_FEATURES if k not in cols]
+    if missing:                      # a renamed feature must not silently zero
+        raise KeyError(f"terminal_design has no column for {missing}")
+    X = np.column_stack([np.ones(n)] + [cols[k] for k in TERMINAL_FEATURES])
+    return np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def terminal_anchors(
+    feat: pd.DataFrame, decoy_perc_a: float = 40.0
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(positive, decoy, exempt)`` masks for 3' ends.
+
+    This level has the clean null the chain level never had.
+
+    Positives are ends that coincide with an annotated TTS of their gene or
+    with a catalogued polyA site: independently known cleavage sites.
+
+    Decoys are ends with neither, sitting in A-rich downstream sequence -- the
+    internal-priming population. That is a mechanism, not a proxy for low
+    support, so it does not simply re-discover the support threshold the way
+    the chain-level decoy set does (see CHAIN_FEATURES). It is the terminal
+    analogue of the wrong-strand splice motif.
+
+    The A-richness cut is deliberately well below
+    ``MonoexonParams.max_perc_a_downstream`` (60): the decoy set wants the
+    priming population, not only the cases extreme enough to reject outright.
+    On BD176c the %A gradient across categories is 20 -> 25 -> 30, entirely
+    under that hard threshold.
+    """
+    n = len(feat)
+
+    def flag(name: str) -> np.ndarray:
+        if name not in feat.columns:
+            return np.zeros(n, bool)
+        return feat[name].to_numpy().astype(bool)
+
+    def num(name: str, default: float) -> np.ndarray:
+        if name not in feat.columns:
+            return np.full(n, default, float)
+        return pd.to_numeric(feat[name], errors="coerce").fillna(default).to_numpy(float)
+
+    ann = flag("end_is_annotated")
+    atlas = flag("end_at_polya_site")
+    perc_a = num("perc_a_downstream", 0.0)
+
+    pos = ann | atlas
+    decoy = ~ann & ~atlas & (perc_a >= decoy_perc_a)
+    # an annotated end is not a discovery, so it is scored 0 without being fit
+    exempt = ann
+    return pos, decoy, exempt
+
+
+def score_terminals(
+    feat: pd.DataFrame, params: ScoringParams, decoy_perc_a: float = 40.0
+) -> Tuple[pd.DataFrame, NoveltyModel]:
+    """Calibrated local FDR per 3' end.
+
+    Stratified by how many 3' peaks the parent chain carries: a sole peak and
+    one rung of a twelve-model ladder are different populations, and pooling
+    them would let the abundant former vouch for the latter.
+    """
+    m = NoveltyModel("terminal")
+    if "n_3p_peaks" in feat.columns:
+        k = pd.to_numeric(feat["n_3p_peaks"], errors="coerce").fillna(1).to_numpy()
+        strat = np.where(k <= 1, 0, np.where(k <= 3, 1, 2))
+    else:
+        strat = np.zeros(len(feat), int)
+    res = m.fit_predict(
+        feat,
+        terminal_design,
+        lambda f: terminal_anchors(f, decoy_perc_a),
+        TERMINAL_FEATURES,
+        params,
+        stratum=strat,
+    )
     return res, m

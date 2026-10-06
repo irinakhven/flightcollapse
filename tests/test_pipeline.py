@@ -32,11 +32,18 @@ def test_all_annotated_transcripts_are_recovered(collapsed, models_table):
 
 
 def test_truncated_reads_land_on_the_full_length_model(models_table):
-    """25 intact + 70 truncated reads must end up as one model with 95 reads,
-    carrying the full 4-exon structure -- not as a 2-exon stub with 70."""
+    """25 intact + 70 truncated reads must end up as one model with the full
+    4-exon structure -- not as a 2-exon stub with 70.
+
+    Since 0.3.0 the count is 135 rather than 95: the 40-read mono-exon 3'UTR
+    fragment is demoted and folded in here, because its 3' peak sits on this
+    model's annotated end. That is the mono-exon rework working -- the reads
+    move between tracks, they are not created."""
     row = models_table.set_index("model_id").loc["ENSTSIM00011"]
     assert row["n_exons"] == 4
-    assert row["n_reads"] == 95
+    assert row["n_reads"] == 135
+    assert row["n_3p_fragment_reads"] == 40
+    assert "absorbed_monoexon_fragment" in str(row["flags"])
 
 
 def test_no_truncation_derived_novel_models(models_table):
@@ -102,12 +109,65 @@ def test_alternative_polya_site_becomes_a_novel_3p_end(models_table):
     assert v.iloc[0]["n_reads"] >= 25
 
 
-def test_monoexon_3utr_fragment_is_kept(models_table):
-    m = models_table[models_table["category"] == "monoexon_3UTR"]
+def test_monoexon_3utr_fragment_is_demoted_into_its_parent(collapsed, models_table):
+    """0.3.0 reverses the 0.1.x behaviour, deliberately.
+
+    A mono-exon cluster inside a terminal exon, whose 3' peak coincides with an
+    emitted spliced model's 3' end, is that transcript's last exon rather than
+    a transcript. On the SIRV masked arm the old behaviour emitted 25 such
+    models of which 2 were correct; in BD176c it is 16,651 of them."""
+    assert (models_table["category"] == "monoexon_3UTR").sum() == 0
+    acc = collapsed["report"]["read_accounting"]
+    assert acc["monoexon_models_demoted_as_fragments"] >= 1
+    assert acc["monoexon_reads_folded_into_spliced"] == 40
+    rej = collapsed["report"]["monoexon_rejections"]
+    assert rej["by_reason"]["demoted_fragment"] >= 1
+
+    # The summary counter and the per-candidate table are two renderings of one
+    # event and must agree. They did not: the demotion branch incremented
+    # rejected_demoted_fragment itself AND called _reject, which increments it
+    # again, so the QC reported exactly 2x the true number on every real run
+    # (33,064 against 16,532 in BD176c, and the same 2.000 ratio in BD178b and
+    # BD166b -- which is what made it findable). Both `>= 1` assertions above
+    # passed throughout. Equality is the assertion that has teeth.
+    assert (acc["monoexon_models_demoted_as_fragments"]
+            == rej["by_reason"]["demoted_fragment"])
+    assert (acc["monoexon_reads_folded_into_spliced"]
+            == rej["reads_by_reason"]["demoted_fragment"])
+
+
+def test_the_demotion_is_attributable(sim, tmp_path_factory):
+    """Switching it off restores the 0.1.x result, so the change is measurable.
+
+    Same discipline as test_0116_behaviour_is_recoverable: a behaviour change
+    that cannot be turned off cannot be attributed."""
+    import pandas as pd
+    from flightcollapse import Config
+    from flightcollapse.pipeline import run
+
+    out = tmp_path_factory.mktemp("nodemote")
+    cfg = Config(bam=sim.bam, reference_gtf=sim.gtf, genome_fasta=sim.genome_fasta)
+    cfg.molecules.barcode_umi_tsv = sim.barcode_umi
+    cfg.output.outdir, cfg.output.prefix = str(out), "nd"
+    cfg.verbose, cfg.strict_invariants = False, False
+    cfg.monoexon.demote_terminal_exon_fragments = False
+    # 0.5.0: this test is about the FIRST pass -- whether the mono-exon
+    # track emits and tiers a fragment model. The second pass would then
+    # remove that model, correctly: the simulated genes are multi-exon only,
+    # so a single-exon model in one of them is class C/D. Pinning the second
+    # pass off here keeps this test measuring what it was written to measure;
+    # tests/test_secondpass.py covers the removal itself.
+    cfg.secondpass.enabled = False
+    # 0.6.0: likewise the final consolidation, which would fold this
+    # mono-exon fragment into its spliced container (tests/test_posthoc.py).
+    cfg.posthoc.enabled = False
+    run(cfg)
+    t = pd.read_csv(out / "nd.models.tsv", sep="\t", low_memory=False)
+    m = t[t["category"] == "monoexon_3UTR"]
     assert len(m) == 1
-    assert m.iloc[0]["n_exons"] == 1
     assert m.iloc[0]["n_reads"] >= 30
     assert "rt_dropoff_fragment" in str(m.iloc[0]["flags"])
+    assert t.set_index("model_id").loc["ENSTSIM00011", "n_reads"] == 95
 
 
 def test_monoexon_gene_body_fragment_without_polya_is_rejected(collapsed, models_table):

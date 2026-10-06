@@ -91,6 +91,30 @@ class Validator:
                 float(np.median(np.log2((read_span[m.reads] + 1.0) / (m.span + 1.0))))
             )
 
+    def merge(self, other: Optional["Validator"]) -> None:
+        """Absorb another validator's evidence.  New in 0.5.0.
+
+        Every field here is an additive count or a list of per-model
+        observations, so merging is exact: a parallel run's verdict is computed
+        from the same numbers a serial run would have accumulated, in the same
+        order, because the parent merges in contig order.
+        """
+        if other is None:
+            return
+        self.total_reads += other.total_reads
+        self.unspliced_reads += other.unspliced_reads
+        self.read_mass_on_monoexon_models += other.read_mass_on_monoexon_models
+        self.read_mass_on_models += other.read_mass_on_models
+        self.model_is_min += other.model_is_min
+        self.model_is_max += other.model_is_max
+        self.n_multiexon_models += other.n_multiexon_models
+        self.span_ratios.extend(other.span_ratios)
+        self.exon_deltas.extend(other.exon_deltas)
+        self.add_merge_stats(other.merge_stats)
+        self.add_accounting(other.accounting)
+        for k, v in other.extra.items():
+            self.extra.setdefault(k, v)
+
     def add_accounting(self, stats: Dict[str, int]) -> None:
         for k, v in stats.items():
             self.accounting[k] = self.accounting.get(k, 0) + int(v)
@@ -162,8 +186,15 @@ class Validator:
         # vanish are as much a modelling failure as reads that pile onto a stub,
         # they are just a quieter one.
         mono_modelled = self.accounting.get("monoexon_reads_modelled", 0)
+        # 0.3.0: an unspliced read folded into the spliced model whose 3' end
+        # it sits on is ACCOUNTED FOR -- it just is not on a mono-exon model.
+        # The invariant is about reads vanishing, not about which track kept
+        # them, and demotion is the one operation that moves them between
+        # tracks on purpose. Counting only mono-exon models here would make
+        # this fire every time the mono-exon rework does its job.
+        folded = self.accounting.get("monoexon_reads_folded_into_spliced", 0)
         n_unspliced = self.accounting.get("unspliced", self.unspliced_reads)
-        cap = mono_modelled / max(n_unspliced, 1)
+        cap = (mono_modelled + folded) / max(n_unspliced, 1)
         out.append(
             InvariantResult(
                 "unspliced_reads_are_accounted_for",
@@ -172,12 +203,15 @@ class Validator:
                 ">= 0.25",
                 (
                     f"only {cap:.1%} of genuinely unspliced reads ended on a "
-                    f"mono-exon model; the rest were discarded. Check the "
-                    f"rejection reasons in read_accounting -- if they are "
-                    f"dominated by no_polya in repeat-rich regions that is "
-                    f"expected, otherwise the mono-exon track is too strict."
+                    f"model at all; the rest were discarded. Check the "
+                    f"rejection reasons in read_accounting and in "
+                    f"*.monoexon_rejected.tsv -- if they are dominated by "
+                    f"no_polya in repeat-rich regions that is expected, "
+                    f"otherwise the mono-exon track is too strict."
                     if cap < 0.25
-                    else f"{cap:.1%} of unspliced reads modelled"
+                    else f"{cap:.1%} of unspliced reads modelled "
+                         f"({mono_modelled:,} on mono-exon models, "
+                         f"{folded:,} folded into spliced models)"
                 ),
             )
         )

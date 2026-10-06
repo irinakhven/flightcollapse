@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flightcollapse"
-version = "0.1.18"
+version = "0.6.3"
 description = "Reference-anchored collapse of aligned long reads into transcript models, for FLIGHT-seq / oligo-dT single-cell Iso-Seq data"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -17,6 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+coverage = ["pyBigWig>=0.3.18"]
 plots = ["matplotlib>=3.5"]
 test = ["pytest>=7"]
 

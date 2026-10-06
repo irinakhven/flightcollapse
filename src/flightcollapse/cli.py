@@ -23,12 +23,15 @@ def _common(p: argparse.ArgumentParser) -> None:
 
 def _build_config(args) -> Config:
     cfg = Config.load(args.config) if getattr(args, "config", None) else Config()
-    for k in ("bam", "reference_gtf", "genome_fasta", "polya_site_bed"):
+    for k in ("bam", "reference_gtf", "genome_fasta", "polya_site_bed",
+              "cage_peak_bed", "cage_reptss_bed"):
         v = getattr(args, k, None)
         if v:
             setattr(cfg, k, v)
     if getattr(args, "short_read_sj", None):
         cfg.short_read_sj = list(args.short_read_sj)
+    if getattr(args, "short_read_coverage", None):
+        cfg.short_read_coverage = list(args.short_read_coverage)
     if getattr(args, "barcode_umi", None):
         cfg.molecules.barcode_umi_tsv = args.barcode_umi
     if getattr(args, "read_name_normalise", None):
@@ -39,12 +42,36 @@ def _build_config(args) -> Config:
         cfg.output.prefix = args.prefix
     if getattr(args, "contigs", None):
         cfg.contigs = list(args.contigs)
+    if getattr(args, "workers", None) is not None:
+        cfg.parallel.workers = int(args.workers)
+    if getattr(args, "no_second_pass", False):
+        cfg.secondpass.enabled = False
+    if getattr(args, "no_posthoc", False):
+        cfg.posthoc.enabled = False
+    if getattr(args, "end3_tolerance", None) is not None:
+        cfg.posthoc.end3_tolerance = int(args.end3_tolerance)
+    if getattr(args, "end5_window", None) is not None:
+        cfg.posthoc.end5_window = int(args.end5_window)
+    if getattr(args, "no_subchain_filter", False):
+        cfg.posthoc.subchain_filter = False
+    if getattr(args, "subchain_ratio", None) is not None:
+        cfg.posthoc.subchain_ratio = float(args.subchain_ratio)
     if getattr(args, "quiet", False):
         cfg.verbose = False
     if getattr(args, "no_strict", False):
         cfg.strict_invariants = False
     if not cfg.molecules.barcode_umi_tsv:
         cfg.molecules.write_matrix = False
+    if getattr(args, "sample_type", None):
+        cfg.sample_type = args.sample_type
+    if getattr(args, "cmd", None) == "run":
+        info = cfg.apply_sample_profile()
+        if info["missing_inputs"] and not getattr(args, "quiet", False):
+            print(f"[profile] {info['sample_type']}: {info['description']}")
+            print("[profile] declared but not supplied: "
+                  + ", ".join(info["missing_inputs"])
+                  + " -- those channels are inactive for this run "
+                    "(see evidence_channels in the QC report)")
     for ov in getattr(args, "overrides", []):
         if "=" not in ov:
             raise SystemExit(f"--set expects KEY=VALUE, got {ov!r}")
@@ -71,6 +98,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     r.add_argument("-f", "--genome-fasta", dest="genome_fasta")
     r.add_argument("--polya-bed", dest="polya_site_bed",
                    help="PolyASite / PolyA_DB BED of catalogued cleavage sites")
+    r.add_argument("--cage-bed", dest="cage_peak_bed",
+                   help="CAGE / TSS peak atlas (FANTOM5, refTSS) as BED6 or BED9. "
+                        "Supports an alternative 5' end; its absence never drops "
+                        "a model")
+    r.add_argument("--cage-reptss", dest="cage_reptss_bed",
+                   help="representative TSS as a separate BED6, joined on the "
+                        "peak name. Needed when the peak file lost its BED9 thick "
+                        "fields, e.g. after lifting FANTOM5 mouse to GRCm39")
+    r.add_argument("--sample-type", dest="sample_type",
+                   help="which SAMPLE_PROFILES preset to apply: retinal_organoid "
+                        "(matched short reads), generic (atlases only, the "
+                        "default), minimal (no external evidence). A declared "
+                        "input that is missing warns and is reported as an "
+                        "inactive channel; it never fails the run")
+    r.add_argument("--short-read-coverage", dest="short_read_coverage", nargs="+",
+                   help="short-read coverage bigWig(s): the 3' cleavage step, "
+                        "the TSS ratio and long-transcript continuity. Needs "
+                        "pyBigWig; without it the channel is simply inactive")
     r.add_argument("--short-read-sj", dest="short_read_sj", nargs="+",
                    help="STAR SJ.out.tab file(s); several are summed. Used as an "
                         "independent positive anchor for the calibration, never "
@@ -82,6 +127,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     r.add_argument("-o", "--outdir")
     r.add_argument("-p", "--prefix")
     r.add_argument("--contigs", nargs="+")
+    r.add_argument("-j", "--workers", type=int, metavar="N",
+                   help="run N contigs in parallel (0 = all cores). Output is "
+                        "byte-identical to a serial run; the count is clamped "
+                        "by available memory, since each worker holds one "
+                        "contig's reads plus its own chromosome sequence")
+    r.add_argument("--no-second-pass", action="store_true",
+                   help="emit the first-pass catalogue unfiltered: no mono-exon "
+                        "A-E classification, no end3_novel gate. The second-pass "
+                        "evidence columns are still measured and written")
+    r.add_argument("--end3-tolerance", dest="end3_tolerance", type=int, metavar="BP",
+                   help="post-hoc 3' tolerance (bp): models with an identical "
+                        "intron chain, 5' ends within posthoc.end5_window and "
+                        "3' ends within BP are merged onto the annotated / most "
+                        "supported end (default 500, the largest tolerance "
+                        "that cost no SIRV recall; 0 = identical ends only, "
+                        "-1 disables the 3' rule)")
+    r.add_argument("--end5-window", dest="end5_window", type=int, metavar="BP",
+                   help="guard on the 3' rule: a merge is blocked when two "
+                        "same-chain models' 5' ends differ by more than BP "
+                        "(default 100). Negative removes the guard, so the 3' "
+                        "end is the whole rule and 5' truncation is left to the "
+                        "sub-chain filter")
+    r.add_argument("--no-subchain-filter", action="store_true",
+                   help="keep models whose intron chain is a contiguous "
+                        "sub-chain of a better-supported model (5'-truncation "
+                        "fragments); by default they are folded into it")
+    r.add_argument("--subchain-ratio", dest="subchain_ratio", type=float, metavar="X",
+                   help="container must carry >= X times the fragment's support "
+                        "for the fragment to be removed (default 2)")
+    r.add_argument("--no-posthoc", action="store_true",
+                   help="skip the final consolidation entirely (0.5.x behaviour)")
     r.add_argument("--no-strict", action="store_true",
                    help="report failed invariants instead of exiting non-zero")
     r.add_argument("-q", "--quiet", action="store_true")

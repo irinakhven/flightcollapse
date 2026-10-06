@@ -35,10 +35,11 @@ def resolve_contig(bam, contig: str) -> Optional[str]:
     return None
 
 
-def alignment_stats(read) -> Tuple[float, float, int, int]:
+def alignment_stats(read, exclude_3p_clip: bool = False) -> Tuple[float, float, int, int]:
     """``(coverage, identity, clip5, clip3)`` for a long-read alignment.
 
-    * coverage = aligned query bases / full query length (hard clips included)
+    * coverage = aligned query bases / query length, hard clips included, and
+      MINUS the transcript-3' terminal clip when ``exclude_3p_clip``
     * identity = 1 - NM / (aligned columns, introns excluded)
     * ``clip5`` / ``clip3`` are the terminal soft+hard clips **in transcript
       orientation**, so ``clip3`` is where an untrimmed polyA tail lives.
@@ -48,6 +49,24 @@ def alignment_stats(read) -> Tuple[float, float, int, int]:
     nothing to do with alignment quality.  A ``--min-aln-coverage 0.99`` gate
     applied to such a BAM keeps ~6% of reads and *enriches* for short,
     mono-exonic ones.
+
+    ``exclude_3p_clip`` (0.4.1) is what ``AlignmentGates.
+    coverage_excludes_3p_clip`` turns on, and it exists because reporting the
+    clip separately was never enough -- the clip was still in the DENOMINATOR,
+    which quietly made coverage a statement about read length.  The clip is
+    near-constant in absolute terms (tail + barcode + UMI, ~99 bp at the median
+    on BD144) while aligned length spans an order of magnitude, so the same clip
+    costs 7% of coverage on a 1.3 kb read and 14% on a 600 bp one.  The 0.90
+    default was calibrated against "~0.93 at the median", and on BD144 the
+    median really is 0.927 -- the number was right and the statistic was not.
+
+    Measured on BD176c, the 0.90 gate rejected 8,406,872 of 24,254,151 scanned
+    reads.  By aligned length it rejected 88% at 500-800 bp, 47% at 0.8-1.2 kb
+    and 0.5% above 2 kb, and 85% of everything it rejected was MULTI-exon --
+    short real transcripts, not fragments.  Excluding the clip takes that to
+    0.3% and leaves a gate that rejects for alignment quality alone.
+
+    Set it False to reproduce 0.2.0-0.4.0 read admission exactly.
     """
     q_total = read.infer_read_length() or read.query_length or 0
     aligned = 0
@@ -62,7 +81,6 @@ def alignment_stats(read) -> Tuple[float, float, int, int]:
                 columns += ln
         elif op == BAM_CDEL:
             columns += ln
-    cov = aligned / q_total if q_total else 0.0
     try:
         nm = read.get_tag("NM")
     except KeyError:
@@ -80,6 +98,16 @@ def alignment_stats(read) -> Tuple[float, float, int, int]:
 
     left, right = _clip(cig), _clip(reversed(cig))
     clip5, clip3 = (right, left) if read.is_reverse else (left, right)
+
+    # The 3' clip holds the polyA tail, the cell barcode and the UMI. None of it
+    # is genomic, so none of it could ever have aligned; counting it as unaligned
+    # query counts a read down for carrying its own adapter. clip5 stays in --
+    # a long 5' clip IS unexplained sequence, and it has its own gate.
+    den = (q_total - clip3) if exclude_3p_clip else q_total
+    # min() because a read that is ALL clip would otherwise divide by <= 0, and
+    # because an insertion-heavy alignment can push aligned past the shortened
+    # denominator; coverage above 1 is not a meaningful state for a gate.
+    cov = min(aligned / den, 1.0) if den > 0 else 0.0
     return cov, ident, clip5, clip3
 
 
@@ -230,7 +258,8 @@ def iter_alignments(
         if r.mapping_quality < gates.min_mapq:
             _bump("low_mapq")
             continue
-        cov, ident, clip5, clip3 = alignment_stats(r)
+        cov, ident, clip5, clip3 = alignment_stats(
+            r, gates.coverage_excludes_3p_clip)
         if cov < gates.min_aln_coverage:
             _bump("low_coverage")
             continue
@@ -262,7 +291,7 @@ def gate_diagnostics(bam, contig: str, gates: AlignmentGates, max_reads: int = 2
     for r in bam.fetch(c):
         if r.is_unmapped or r.is_secondary or r.is_supplementary:
             continue
-        a, b, x, y = alignment_stats(r)
+        a, b, x, y = alignment_stats(r, gates.coverage_excludes_3p_clip)
         cov.append(a)
         ident.append(b)
         c5.append(x)
